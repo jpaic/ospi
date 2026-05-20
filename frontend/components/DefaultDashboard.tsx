@@ -20,6 +20,9 @@ export default function DefaultDashboard() {
   const declining = countries.filter(c => c.growthRate < 0)
   const fastest   = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
 
+  // Alphabetical for the summary table
+  const alphabetical = [...countries].sort((a, b) => a.name.localeCompare(b.name))
+
   useEffect(() => {
     if (!barRef.current || !scatterRef.current) return
 
@@ -158,7 +161,7 @@ export default function DefaultDashboard() {
           <div>
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">Global Population Intelligence</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Signal-based population estimates across {countries.length} countries · Select any country for detailed analysis
+              Signal-based population estimates across {countries.length} countries · Select any country for detailed analysis · Model run: 2024-Q2
             </p>
           </div>
 
@@ -189,11 +192,44 @@ export default function DefaultDashboard() {
           {/* Row: scatter + fastest growth */}
           <div className="grid grid-cols-2 gap-3">
             {/* Scatter */}
-            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-1">Signal quality vs divergence</p>
               <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Higher signal → lower divergence expected</p>
               <div style={{ height: 120 }}>
                 <canvas ref={scatterRef} />
+              </div>
+              {/* Derived insight strip */}
+              <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                {(() => {
+                  const highSigCountries  = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
+                  const lowSigCountries   = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
+                  const avgDivHighSig     = Math.round(highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1))
+                  const avgDivLowSig      = Math.round(lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1))
+                  const outliers          = countries.filter(c => {
+                    const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+                    const div = Math.abs(calcDelta(c))
+                    return (sig >= 75 && div > 5) || (sig < 50 && div < 3)
+                  })
+                  return (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-zinc-400">Avg divergence · high signal</span>
+                        <span className="text-[9px] font-mono font-semibold text-emerald-500">±{avgDivHighSig}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-zinc-400">Avg divergence · low signal</span>
+                        <span className="text-[9px] font-mono font-semibold text-red-500">±{avgDivLowSig}%</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-zinc-400">Signal–divergence outliers</span>
+                        <span className="text-[9px] font-mono font-medium text-amber-500">{outliers.length} countries</span>
+                      </div>
+                      <p className="text-[9px] text-zinc-300 dark:text-zinc-600 leading-relaxed">
+                        Countries breaking the expected pattern: high signal (&ge;75) but &gt;5% divergence, or low signal (&lt;50) but &lt;3% divergence.{outliers.length > 0 && <> e.g. <span className="text-zinc-400 dark:text-zinc-500">{outliers.slice(0, 2).map(c => c.name).join(', ')}</span>.</>}
+                      </p>
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
@@ -235,10 +271,10 @@ export default function DefaultDashboard() {
             </div>
           </div>
 
-          {/* Confidence + region summary table */}
+          {/* Confidence + region summary table — alphabetical */}
           <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg overflow-hidden">
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries — summary</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries — A → Z</p>
               <div className="flex gap-3">
                 {[
                   { label: 'High', col: '#1D9E75' },
@@ -261,7 +297,7 @@ export default function DefaultDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {countries.map((c, i) => {
+                {alphabetical.map((c, i) => {
                   const d    = calcDelta(c)
                   const isP  = d >= 0
                   const col  = confColor(c.conf)
