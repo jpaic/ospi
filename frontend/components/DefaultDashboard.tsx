@@ -1,15 +1,19 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { countries } from '@/lib/mockData'
+import { useCountries } from '@/lib/useCountries'
+import { useDataSource } from '@/lib/dataSource'
 import { calcDelta, confColor, confLabel, globalStats } from '@/lib/estimator'
 import type { Chart as ChartType } from 'chart.js'
 
 export default function DefaultDashboard() {
-  const barRef    = useRef<HTMLCanvasElement>(null)
+  const countries  = useCountries()
+  const { noSignals } = useDataSource()
+
+  const barRef     = useRef<HTMLCanvasElement>(null)
   const scatterRef = useRef<HTMLCanvasElement>(null)
-  const barInst   = useRef<ChartType | null>(null)
-  const scatInst  = useRef<ChartType | null>(null)
+  const barInst    = useRef<ChartType | null>(null)
+  const scatInst   = useRef<ChartType | null>(null)
 
   const stats = globalStats(countries)
 
@@ -17,10 +21,8 @@ export default function DefaultDashboard() {
     .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
     .slice(0, 8)
 
-  const declining = countries.filter(c => c.growthRate < 0)
-  const fastest   = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
-
-  // Alphabetical for the summary table
+  const declining  = countries.filter(c => c.growthRate < 0)
+  const fastest    = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
   const alphabetical = [...countries].sort((a, b) => a.name.localeCompare(b.name))
 
   useEffect(() => {
@@ -98,7 +100,11 @@ export default function DefaultDashboard() {
               y: Math.abs(calcDelta(c)),
               label: c.name,
             })),
-            backgroundColor: countries.map(c => confColor(c.conf) + 'bb'),
+            backgroundColor: countries.map(c =>
+              noSignals
+                ? (isDark ? 'rgba(113,113,122,0.3)' : 'rgba(161,161,170,0.3)')
+                : confColor(c.conf) + 'bb'
+            ),
             pointRadius: 5,
             pointHoverRadius: 7,
           }],
@@ -137,7 +143,7 @@ export default function DefaultDashboard() {
 
     init()
     return () => { barInst.current?.destroy(); scatInst.current?.destroy() }
-  }, [])
+  }, [countries, noSignals])
 
   const statCards = [
     { label: 'Official world pop.',  value: `${(stats.totalOfficial / 1000).toFixed(2)}B`, sub: 'Government census sum' },
@@ -165,12 +171,25 @@ export default function DefaultDashboard() {
             </p>
           </div>
 
+          {/* UN source notice */}
+          {noSignals && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20">
+              <svg className="text-amber-500 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+              <p className="text-[10px] text-amber-700 dark:text-amber-400">
+                UN WPP source active — signal data not yet available. OSPI estimates mirror official figures until model runs.
+              </p>
+            </div>
+          )}
+
           {/* KPI strip */}
           <div className="grid grid-cols-3 gap-2">
             {statCards.map(k => (
               <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
-                <p className="text-lg font-semibold leading-none" style={k.color ? { color: k.color } : { color: 'var(--tw-prose-body)' }}>
+                <p className="text-lg font-semibold leading-none" style={k.color ? { color: k.color } : {}}>
                   <span className={!k.color ? 'text-zinc-800 dark:text-zinc-100' : ''}>{k.value}</span>
                 </p>
                 <p className="text-[9px] text-zinc-400 mt-1">{k.sub}</p>
@@ -191,46 +210,63 @@ export default function DefaultDashboard() {
 
           {/* Row: scatter + fastest growth */}
           <div className="grid grid-cols-2 gap-3">
-            {/* Scatter */}
+
+            {/* Scatter — grayed out when no signals */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-1">Signal quality vs divergence</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal quality vs divergence</p>
+                {noSignals && (
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-400">no signals</span>
+                )}
+              </div>
               <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Higher signal → lower divergence expected</p>
-              <div style={{ height: 120 }}>
+              <div className={`${noSignals ? 'opacity-40 pointer-events-none' : ''}`} style={{ height: 120 }}>
                 <canvas ref={scatterRef} />
               </div>
+
               {/* Derived insight strip */}
-              <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
-                {(() => {
-                  const highSigCountries  = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
-                  const lowSigCountries   = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
-                  const avgDivHighSig     = Math.round(highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1))
-                  const avgDivLowSig      = Math.round(lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1))
-                  const outliers          = countries.filter(c => {
-                    const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
-                    const div = Math.abs(calcDelta(c))
-                    return (sig >= 75 && div > 5) || (sig < 50 && div < 3)
-                  })
-                  return (
-                    <>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-zinc-400">Avg divergence · high signal</span>
-                        <span className="text-[9px] font-mono font-semibold text-emerald-500">±{avgDivHighSig}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-zinc-400">Avg divergence · low signal</span>
-                        <span className="text-[9px] font-mono font-semibold text-red-500">±{avgDivLowSig}%</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-zinc-400">Signal–divergence outliers</span>
-                        <span className="text-[9px] font-mono font-medium text-amber-500">{outliers.length} countries</span>
-                      </div>
-                      <p className="text-[9px] text-zinc-300 dark:text-zinc-600 leading-relaxed">
-                        Countries breaking the expected pattern: high signal (&ge;75) but &gt;5% divergence, or low signal (&lt;50) but &lt;3% divergence.{outliers.length > 0 && <> e.g. <span className="text-zinc-400 dark:text-zinc-500">{outliers.slice(0, 2).map(c => c.name).join(', ')}</span>.</>}
-                      </p>
-                    </>
-                  )
-                })()}
-              </div>
+              {!noSignals && (
+                <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
+                  {(() => {
+                    const highSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
+                    const lowSigCountries  = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
+                    const avgDivHighSig    = Math.round(highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1))
+                    const avgDivLowSig     = Math.round(lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1))
+                    const outliers         = countries.filter(c => {
+                      const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+                      const div = Math.abs(calcDelta(c))
+                      return (sig >= 75 && div > 5) || (sig < 50 && div < 3)
+                    })
+                    return (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400">Avg divergence · high signal</span>
+                          <span className="text-[9px] font-mono font-semibold text-emerald-500">±{avgDivHighSig}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400">Avg divergence · low signal</span>
+                          <span className="text-[9px] font-mono font-semibold text-red-500">±{avgDivLowSig}%</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] text-zinc-400">Signal–divergence outliers</span>
+                          <span className="text-[9px] font-mono font-medium text-amber-500">{outliers.length} countries</span>
+                        </div>
+                        <p className="text-[9px] text-zinc-300 dark:text-zinc-600 leading-relaxed">
+                          Countries breaking the expected pattern: high signal (≥75) but &gt;5% divergence, or low signal (&lt;50) but &lt;3% divergence.
+                          {outliers.length > 0 && <> e.g. <span className="text-zinc-400 dark:text-zinc-500">{outliers.slice(0, 2).map(c => c.name).join(', ')}</span>.</>}
+                        </p>
+                      </>
+                    )
+                  })()}
+                </div>
+              )}
+
+              {/* Placeholder when no signals */}
+              {noSignals && (
+                <p className="mt-3 text-[9px] text-zinc-300 dark:text-zinc-600 border-t border-zinc-100 dark:border-zinc-800 pt-2.5">
+                  Signal insight unavailable — run your model to populate signal scores.
+                </p>
+              )}
             </div>
 
             {/* Fastest growing */}
@@ -239,14 +275,9 @@ export default function DefaultDashboard() {
               <div className="space-y-2">
                 {fastest.map(c => (
                   <div key={c.name} className="flex items-center gap-2">
-                    <span
-                      className="w-1.5 h-1.5 rounded-full shrink-0"
-                      style={{ background: confColor(c.conf) }}
-                    />
+                    <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: confColor(c.conf) }} />
                     <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1 truncate">{c.name}</span>
-                    <span className="text-xs font-mono font-semibold text-emerald-500">
-                      +{c.growthRate}%
-                    </span>
+                    <span className="text-xs font-mono font-semibold text-emerald-500">+{c.growthRate}%</span>
                     <div className="w-16 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-emerald-500 rounded-full"
@@ -260,18 +291,20 @@ export default function DefaultDashboard() {
               <div className="mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Declining populations</p>
                 <div className="space-y-1.5">
-                  {declining.map(c => (
+                  {declining.length > 0 ? declining.map(c => (
                     <div key={c.name} className="flex items-center justify-between">
                       <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{c.name}</span>
                       <span className="text-[11px] font-mono font-semibold text-red-500">{c.growthRate}%/yr</span>
                     </div>
-                  ))}
+                  )) : (
+                    <p className="text-[10px] text-zinc-300 dark:text-zinc-600">None in current dataset</p>
+                  )}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Confidence + region summary table — alphabetical */}
+          {/* Summary table — alphabetical */}
           <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg overflow-hidden">
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries — A → Z</p>
@@ -298,11 +331,16 @@ export default function DefaultDashboard() {
               </thead>
               <tbody>
                 {alphabetical.map((c, i) => {
-                  const d    = calcDelta(c)
-                  const isP  = d >= 0
-                  const col  = confColor(c.conf)
+                  const d   = calcDelta(c)
+                  const isP = d >= 0
+                  const col = noSignals
+                    ? '#a1a1aa'  // all gray when no signals
+                    : confColor(c.conf)
                   return (
-                    <tr key={c.name} className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-zinc-950/30'}`}>
+                    <tr
+                      key={c.name}
+                      className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-zinc-950/30'}`}
+                    >
                       <td className="px-3 py-1.5">
                         <div className="flex items-center gap-1.5">
                           <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: col }} />
@@ -321,9 +359,12 @@ export default function DefaultDashboard() {
                       <td className="px-3 py-1.5">
                         <span
                           className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                          style={{ background: `${col}18`, color: col }}
+                          style={noSignals
+                            ? { background: 'rgba(161,161,170,0.1)', color: '#a1a1aa' }
+                            : { background: `${col}18`, color: col }
+                          }
                         >
-                          {confLabel(c.conf)}
+                          {noSignals ? '—' : confLabel(c.conf)}
                         </span>
                       </td>
                     </tr>

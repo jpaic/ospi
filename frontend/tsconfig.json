@@ -22,6 +22,13 @@
       "@/*": ["./*"]
     }
   },
+  "ts-node": {
+    "compilerOptions": {
+      "module": "CommonJS"
+    },
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  },
   "include": [
     "next-env.d.ts",
     "**/*.ts",

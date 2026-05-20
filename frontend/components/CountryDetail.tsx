@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { Country } from '@/lib/mockData'
 import { deltaStr, signalColor, confLabel, confColor } from '@/lib/estimator'
+import { useDataSource } from '@/lib/dataSource'
 import type { Chart as ChartType } from 'chart.js'
 
 interface Props { country: Country }
@@ -16,6 +17,8 @@ const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
 ]
 
 export default function CountryDetail({ country: c }: Props) {
+  const { noSignals } = useDataSource()
+
   const trendRef  = useRef<HTMLCanvasElement>(null)
   const radarRef  = useRef<HTMLCanvasElement>(null)
   const barRef    = useRef<HTMLCanvasElement>(null)
@@ -25,7 +28,7 @@ export default function CountryDetail({ country: c }: Props) {
 
   const delta  = deltaStr(c)
   const isPos  = c.ospi >= c.official
-  const badge  = confColor(c.conf)
+  const badge  = noSignals ? '#a1a1aa' : confColor(c.conf)
   const avgSig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
 
   useEffect(() => {
@@ -47,9 +50,9 @@ export default function CountryDetail({ country: c }: Props) {
       radarInst.current?.destroy()
       barInst.current?.destroy()
 
-      const isDark  = window.matchMedia('(prefers-color-scheme: dark)').matches
-      const tick    = isDark ? '#52525b' : '#a1a1aa'
-      const grid    = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      const tick   = isDark ? '#52525b' : '#a1a1aa'
+      const grid   = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
       const tooltipOpts = {
         backgroundColor: isDark ? '#18181b' : '#fff',
         borderColor:     isDark ? '#27272a' : '#e4e4e7',
@@ -90,7 +93,10 @@ export default function CountryDetail({ country: c }: Props) {
         options: {
           responsive: true, maintainAspectRatio: false,
           interaction: { mode: 'index', intersect: false },
-          plugins: { legend: { display: false }, tooltip: { ...tooltipOpts, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } } },
+          plugins: {
+            legend: { display: false },
+            tooltip: { ...tooltipOpts, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
+          },
           scales: {
             x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
             y: { ticks: { color: tick, font: { size: 9 }, callback: v => `${v}M` }, grid: { color: grid }, border: { display: false } },
@@ -105,16 +111,18 @@ export default function CountryDetail({ country: c }: Props) {
           labels: ['Telecom', 'Electricity', 'Building', 'Mobility', 'Internet'],
           datasets: [{
             data: SIGNALS.map(s => c.signals[s.key]),
-            backgroundColor: isDark ? 'rgba(29,158,117,0.15)' : 'rgba(29,158,117,0.1)',
-            borderColor: '#1D9E75',
+            backgroundColor: noSignals
+              ? (isDark ? 'rgba(113,113,122,0.1)' : 'rgba(161,161,170,0.1)')
+              : (isDark ? 'rgba(29,158,117,0.15)' : 'rgba(29,158,117,0.1)'),
+            borderColor: noSignals ? '#71717a' : '#1D9E75',
             borderWidth: 1.5,
-            pointBackgroundColor: '#1D9E75',
+            pointBackgroundColor: noSignals ? '#71717a' : '#1D9E75',
             pointRadius: 3,
           }],
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { display: false }, tooltip: { ...tooltipOpts } },
+          plugins: { legend: { display: false }, tooltip: tooltipOpts },
           scales: {
             r: {
               min: 0, max: 100,
@@ -154,10 +162,7 @@ export default function CountryDetail({ country: c }: Props) {
             responsive: true, maintainAspectRatio: false,
             interaction: { mode: 'index', intersect: false },
             plugins: {
-              legend: {
-                display: true,
-                labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 10 },
-              },
+              legend: { display: true, labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 10 } },
               tooltip: { ...tooltipOpts, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
             },
             scales: {
@@ -175,7 +180,7 @@ export default function CountryDetail({ country: c }: Props) {
       radarInst.current?.destroy()
       barInst.current?.destroy()
     }
-  }, [c])
+  }, [c, noSignals])
 
   return (
     <div
@@ -193,27 +198,35 @@ export default function CountryDetail({ country: c }: Props) {
                 <h2 className="text-xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">{c.name}</h2>
                 <span className="text-[10px] font-mono text-zinc-400 bg-zinc-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded">ISO {c.iso}</span>
               </div>
-              <p className="text-xs text-zinc-400 mt-0.5">{c.region} · {c.densityKm2} people/km² · {c.urbanPct}% urban</p>
+              <p className="text-xs text-zinc-400 mt-0.5">
+                {c.region}
+                {c.densityKm2  ? ` · ${c.densityKm2} people/km²` : ''}
+                {c.urbanPct    ? ` · ${c.urbanPct}% urban`        : ''}
+              </p>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full" style={{ background: `${badge}18`, color: badge }}>
+            <div
+              className="flex items-center gap-1.5 text-[11px] font-medium px-2.5 py-1 rounded-full"
+              style={{ background: `${badge}18`, color: badge }}
+            >
               <span className="w-1.5 h-1.5 rounded-full" style={{ background: badge }} />
-              {confLabel(c.conf)} confidence
+              {noSignals ? 'Unscored' : confLabel(c.conf)} confidence
             </div>
           </div>
 
           {/* ── KPI strip ── */}
           <div className="grid grid-cols-5 gap-2">
             {[
-              { label: 'Official pop.',   value: `${c.official}M`,      sub: 'Census reported',    color: '' },
-              { label: 'OSPI estimate',   value: `${c.ospi}M`,          sub: 'Signal-weighted',    color: '#1D9E75' },
-              { label: 'Divergence',      value: delta,                  sub: `${Math.abs(c.ospi - c.official)}M gap`, color: isPos ? '#1D9E75' : '#E24B4A' },
-              { label: 'GDP / capita',    value: `$${c.gdpPerCapita.toLocaleString()}`, sub: 'USD nominal',   color: '' },
-              { label: 'Annual growth',   value: `${c.growthRate > 0 ? '+' : ''}${c.growthRate}%`, sub: 'Rate p.a.', color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' },
+              { label: 'Official pop.',  value: `${c.official}M`,   sub: 'Census reported',    color: '' },
+              { label: 'OSPI estimate',  value: `${c.ospi}M`,       sub: 'Signal-weighted',    color: '#1D9E75' },
+              { label: 'Divergence',     value: delta,               sub: `${Math.abs(c.ospi - c.official)}M gap`, color: isPos ? '#1D9E75' : '#E24B4A' },
+              { label: 'GDP / capita',   value: c.gdpPerCapita ? `$${c.gdpPerCapita.toLocaleString()}` : '—', sub: 'USD nominal', color: '' },
+              { label: 'Annual growth',  value: `${c.growthRate > 0 ? '+' : ''}${c.growthRate}%`, sub: 'Rate p.a.', color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' },
             ].map(k => (
               <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
-                <p className="text-base font-semibold leading-none" style={k.color ? { color: k.color } : { color: 'inherit' }}
-                   data-color={k.color || 'default'}>{k.value}</p>
+                <p className="text-base font-semibold leading-none" style={k.color ? { color: k.color } : {}}>
+                  <span className={!k.color ? 'text-zinc-800 dark:text-zinc-100' : ''}>{k.value}</span>
+                </p>
                 <p className="text-[9px] text-zinc-400 mt-1">{k.sub}</p>
               </div>
             ))}
@@ -228,7 +241,13 @@ export default function CountryDetail({ country: c }: Props) {
                 <div className="flex gap-3">
                   {[{ col: '#1D9E75', label: 'OSPI' }, { col: '#a1a1aa', label: 'Official', dashed: true }].map(l => (
                     <span key={l.label} className="flex items-center gap-1 text-[9px] text-zinc-400">
-                      <span className="inline-block w-4 h-px border-t" style={l.dashed ? { borderColor: l.col, borderStyle: 'dashed' } : { background: l.col, borderStyle: 'solid', borderTopWidth: '2px' }} />
+                      <span
+                        className="inline-block w-4 h-px border-t"
+                        style={l.dashed
+                          ? { borderColor: l.col, borderStyle: 'dashed' }
+                          : { background: l.col, borderTopWidth: '2px' }
+                        }
+                      />
                       {l.label}
                     </span>
                   ))}
@@ -239,10 +258,15 @@ export default function CountryDetail({ country: c }: Props) {
               </div>
             </div>
 
-            {/* Radar */}
+            {/* Radar — grayed out when no signals */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-1">Signal radar</p>
-              <div style={{ height: 118 }}>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal radar</p>
+                {noSignals && (
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-400">no signals</span>
+                )}
+              </div>
+              <div className={noSignals ? 'opacity-40 pointer-events-none' : ''} style={{ height: 118 }}>
                 <canvas ref={radarRef} />
               </div>
             </div>
@@ -250,13 +274,18 @@ export default function CountryDetail({ country: c }: Props) {
 
           {/* ── Charts row 2: Signal bars + Region bar ── */}
           <div className="grid grid-cols-3 gap-3">
-            {/* Signal bars */}
+            {/* Signal bars — grayed out when no signals */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Signal scores</p>
-              <div className="space-y-2">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal scores</p>
+                {noSignals && (
+                  <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-400">no signals</span>
+                )}
+              </div>
+              <div className={`space-y-2 ${noSignals ? 'opacity-40 pointer-events-none' : ''}`}>
                 {SIGNALS.map(({ key, label }) => {
-                  const v = c.signals[key]
-                  const col = signalColor(v)
+                  const v   = c.signals[key]
+                  const col = noSignals ? '#a1a1aa' : signalColor(v)
                   return (
                     <div key={key}>
                       <div className="flex justify-between mb-0.5">
@@ -271,9 +300,16 @@ export default function CountryDetail({ country: c }: Props) {
                 })}
                 <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
                   <span className="text-[9px] text-zinc-400 uppercase tracking-wider">Composite</span>
-                  <span className="text-sm font-semibold" style={{ color: signalColor(avgSig) }}>{avgSig}</span>
+                  <span className="text-sm font-semibold" style={{ color: noSignals ? '#a1a1aa' : signalColor(avgSig) }}>
+                    {noSignals ? '—' : avgSig}
+                  </span>
                 </div>
               </div>
+              {noSignals && (
+                <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mt-2">
+                  Run your model to populate signal scores.
+                </p>
+              )}
             </div>
 
             {/* Region bar chart */}
@@ -284,7 +320,9 @@ export default function CountryDetail({ country: c }: Props) {
                   <canvas ref={barRef} />
                 </div>
               ) : (
-                <div className="flex items-center justify-center h-24 text-[10px] text-zinc-300 dark:text-zinc-700">No regional data</div>
+                <div className="flex items-center justify-center h-24 text-[10px] text-zinc-300 dark:text-zinc-700">
+                  No regional data
+                </div>
               )}
             </div>
           </div>
@@ -307,6 +345,7 @@ export default function CountryDetail({ country: c }: Props) {
                   {c.regions.map((r, i) => {
                     const rDelta = Math.round((r.ospi - r.pop) / r.pop * 100)
                     const rPos   = r.ospi >= r.pop
+                    const rCol   = noSignals ? '#a1a1aa' : confColor(r.conf)
                     return (
                       <tr
                         key={r.name}
@@ -321,9 +360,9 @@ export default function CountryDetail({ country: c }: Props) {
                         <td className="px-3 py-1.5">
                           <span
                             className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                            style={{ background: `${confColor(r.conf)}18`, color: confColor(r.conf) }}
+                            style={{ background: `${rCol}18`, color: rCol }}
                           >
-                            {confLabel(r.conf)}
+                            {noSignals ? '—' : confLabel(r.conf)}
                           </span>
                         </td>
                       </tr>
@@ -343,6 +382,7 @@ export default function CountryDetail({ country: c }: Props) {
               OSPI estimates are probabilistic models derived from weighted signal indicators.
               Confidence reflects data source reliability. Estimates should not be treated as official counts.
               Last model run: <span className="font-mono">2023-Q4</span>.
+              {noSignals && ' · Signal data not yet available for this source — OSPI mirrors official figures until your model runs.'}
             </p>
           </div>
 

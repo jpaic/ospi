@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import type { Country } from '@/lib/mockData'
 import { deltaStr, confLabel, confColor, globalStats } from '@/lib/estimator'
-import { countries as allCountries } from '@/lib/mockData'
+import { useCountries } from '@/lib/useCountries'
+import { useDataSource } from '@/lib/dataSource'
 
 interface Props {
   countries: Country[]
@@ -24,6 +25,8 @@ function ConfDot({ conf }: { conf: Country['conf'] }) {
 
 export default function Sidebar({ countries, selected, onSelect, query, onSearch }: Props) {
   const [expandedRegions, setExpandedRegions] = useState<string | null>(null)
+  const allCountries = useCountries()
+  const { noSignals } = useDataSource()
   const stats = globalStats(allCountries)
 
   const toggleRegions = (name: string) =>
@@ -45,8 +48,8 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           {[
             { label: 'Official total', value: `${(stats.totalOfficial / 1000).toFixed(1)}B` },
             { label: 'OSPI total',     value: `${(stats.totalOspi / 1000).toFixed(1)}B`     },
-            { label: 'Avg divergence', value: `±${stats.avgDivergence}%`                     },
-            { label: 'Countries',      value: String(allCountries.length)                    },
+            { label: 'Avg divergence', value: `±${stats.avgDivergence}%`                    },
+            { label: 'Countries',      value: String(allCountries.length)                   },
           ].map(s => (
             <div key={s.label} className="bg-zinc-50 dark:bg-zinc-900 rounded px-2 py-1.5">
               <p className="text-[9px] text-zinc-400 uppercase tracking-wider">{s.label}</p>
@@ -68,9 +71,9 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           </div>
           <div className="flex gap-3 mt-1">
             {[
-              { label: `High ${stats.highConf}`, col: 'text-emerald-500' },
-              { label: `Med ${allCountries.length - stats.highConf - stats.lowConf}`, col: 'text-amber-500' },
-              { label: `Low ${stats.lowConf}`, col: 'text-red-500' },
+              { label: `High ${stats.highConf}`,                                        col: 'text-emerald-500' },
+              { label: `Med ${allCountries.length - stats.highConf - stats.lowConf}`,   col: 'text-amber-500'  },
+              { label: `Low ${stats.lowConf}`,                                          col: 'text-red-500'    },
             ].map(b => (
               <span key={b.label} className={`text-[9px] font-medium ${b.col}`}>{b.label}</span>
             ))}
@@ -99,7 +102,10 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
       </div>
 
       {/* ── Country list ── */}
-      <ul className="sb-scroll overflow-y-auto flex-1" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}>
+      <ul
+        className="sb-scroll overflow-y-auto flex-1"
+        style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
+      >
         {countries.map(c => {
           const delta    = deltaStr(c)
           const isPos    = c.ospi >= c.official
@@ -130,13 +136,13 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                     >{delta}</span>
                   </div>
 
-                  {/* Mini signal bar */}
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  {/* Mini signal bar — grayed out when no signals */}
+                  <div className={`flex items-center gap-1.5 mt-0.5 ${noSignals ? 'opacity-40' : ''}`}>
                     <div className="flex-1 h-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
                       <div
                         className="h-full rounded-full"
                         style={{
-                          width: `${avgSig}%`,
+                          width: noSignals ? '0%' : `${avgSig}%`,
                           background: avgSig >= 75 ? '#1D9E75' : avgSig >= 50 ? '#EF9F27' : '#E24B4A',
                         }}
                       />
@@ -146,7 +152,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                     </span>
                   </div>
 
-                  {/* Extra meta row */}
+                  {/* Meta row */}
                   <div className="flex gap-2 mt-0.5">
                     <span className="text-[9px] text-zinc-300 dark:text-zinc-600">{c.region}</span>
                     <span className="text-[9px] text-zinc-300 dark:text-zinc-600">·</span>
