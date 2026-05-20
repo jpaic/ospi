@@ -10,10 +10,21 @@ interface Props {
 }
 
 export default function WorldMap({ countries, selected, onSelect }: Props) {
-  const svgRef      = useRef<SVGSVGElement>(null)
-  const projRef     = useRef<any>(null)
-  const zoomRef     = useRef<any>(null)
-  const initDoneRef = useRef(false)
+  const svgRef        = useRef<SVGSVGElement>(null)
+  const projRef       = useRef<any>(null)
+  const pathGenRef    = useRef<any>(null)
+  const zoomRef       = useRef<any>(null)
+  const curKRef       = useRef<number>(1)
+  const curTyRef      = useRef<number>(0)   // manual Y-pan accumulator
+  const initDoneRef   = useRef(false)
+  // Keep latest props in refs so event-handler closures never go stale
+  const selectedRef   = useRef<Country | null>(selected)
+  const countriesRef  = useRef<Country[]>(countries)
+  const onSelectRef   = useRef(onSelect)
+
+  selectedRef.current  = selected
+  countriesRef.current = countries
+  onSelectRef.current  = onSelect
 
   const drawMarkers = (proj: any, k = 1) => {
     const svg = svgRef.current
@@ -22,20 +33,19 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
     if (!layer) return
     layer.innerHTML = ''
 
-    countries.forEach(c => {
+    countriesRef.current.forEach(c => {
       const coords = proj([c.lng, c.lat])
       if (!coords) return
       const [x, y] = coords
       const baseR = Math.max(3, Math.min(9, c.ospi / 130))
       const r     = baseR / k
       const col   = c.conf === 'high' ? '#1D9E75' : c.conf === 'med' ? '#EF9F27' : '#E24B4A'
-      const isSel = selected?.name === c.name
+      const isSel = selectedRef.current?.name === c.name
 
       const g = document.createElementNS('http://www.w3.org/2000/svg', 'g')
       g.style.cursor = 'pointer'
-      g.addEventListener('click', e => { e.stopPropagation(); onSelect(c) })
+      g.addEventListener('click', e => { e.stopPropagation(); onSelectRef.current(c) })
 
-      // pulse ring for selected
       if (isSel) {
         const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle')
         ring.setAttribute('cx', String(x))
@@ -66,11 +76,35 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
     })
   }
 
+  const redrawPaths = () => {
+    const svg = svgRef.current
+    const pathGen = pathGenRef.current
+    if (!svg || !pathGen) return
+    svg.querySelectorAll('#land-layer path').forEach(p => {
+      const f = (p as any).__feature__
+      if (f) p.setAttribute('d', pathGen(f) ?? '')
+    })
+    const gratPath = svg.querySelector('#grat-path') as SVGPathElement | null
+    if (gratPath) {
+      const grat = (gratPath as any).__grat__
+      if (grat) gratPath.setAttribute('d', pathGen(grat) ?? '')
+    }
+  }
+
+  // Apply the current k + ty to mapG, always scaling from viewport center
+  const applyTransform = (mapG: SVGGElement, W: number, H: number, k: number, ty: number) => {
+    const cx = W / 2
+    const cy = H / 2
+    mapG.setAttribute(
+      'transform',
+      `translate(${cx * (1 - k)},${cy * (1 - k) + ty}) scale(${k})`
+    )
+  }
+
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
 
-    // Square: use the element's actual rendered size
     const SIZE = svg.clientWidth || 320
     const W = SIZE, H = SIZE
 
@@ -92,13 +126,11 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
       if (!initDoneRef.current) {
         svg.innerHTML = ''
 
-        // Ocean bg
         const bg = document.createElementNS('http://www.w3.org/2000/svg', 'rect')
         bg.setAttribute('width', String(W)); bg.setAttribute('height', String(H))
         bg.setAttribute('fill', oceanCol)
         svg.appendChild(bg)
 
-        // Clip
         const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
         const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath')
         clip.id = 'map-clip'
@@ -106,13 +138,11 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
         cr.setAttribute('width', String(W)); cr.setAttribute('height', String(H))
         clip.appendChild(cr); defs.appendChild(clip); svg.appendChild(defs)
 
-        // Zoomable group
         const mapG = document.createElementNS('http://www.w3.org/2000/svg', 'g')
         mapG.id = 'map-group'
         mapG.setAttribute('clip-path', 'url(#map-clip)')
         svg.appendChild(mapG)
 
-        // Graticule layer
         const gratLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g')
         gratLayer.id = 'grat-layer'
         mapG.appendChild(gratLayer)
@@ -125,27 +155,33 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
         markerLayer.id = 'marker-layer'
         mapG.appendChild(markerLayer)
 
-        // Projection: Natural Earth, scaled to fill square with padding
+        // ── Projection ──
         const proj = d3.geoNaturalEarth1()
           .scale(W / 5.8)
           .translate([W / 2, H / 2])
+          .rotate([0, 0])
         projRef.current = proj
+
         const pathGen = d3.geoPath(proj)
+        pathGenRef.current = pathGen
 
         // Graticule
         const graticule = d3.geoGraticule()()
         const gratPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+        gratPath.id = 'grat-path'
+        ;(gratPath as any).__grat__ = graticule
         gratPath.setAttribute('d', pathGen(graticule) ?? '')
         gratPath.setAttribute('fill', 'none')
         gratPath.setAttribute('stroke', gratCol)
         gratPath.setAttribute('stroke-width', '0.4')
         gratLayer.appendChild(gratPath)
 
-        // Land + borders
+        // Land
         const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as any
         const feats  = (topo.feature(world, world.objects.countries) as any).features
         feats.forEach((f: any) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+          ;(p as any).__feature__ = f
           p.setAttribute('d', pathGen(f) ?? '')
           p.setAttribute('fill', landCol)
           p.setAttribute('stroke', borderCol)
@@ -153,19 +189,130 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
           landLayer.appendChild(p)
         })
 
-        // Zoom — allow full pan in both axes
-        let curK = 1
-        const zoom = d3.zoom<SVGSVGElement, unknown>()
-          .scaleExtent([1, 12])
-          .on('zoom', event => {
-            curK = event.transform.k
-            mapG.setAttribute('transform', event.transform.toString())
-            drawMarkers(proj, curK)
-          })
-        zoomRef.current = zoom
-        d3.select(svg).call(zoom)
+        // ── Y-clamp bounds ──
+        // At k=1, how far can the map pan vertically before showing empty ocean?
+        const yNorth = proj([0,  82])?.[1] ?? 0
+        const ySouth = proj([0, -82])?.[1] ?? H
+        const mapH   = ySouth - yNorth  // SVG height of the full map at k=1
 
-        // Zoom buttons
+        const clampTy = (ty: number, k: number) => {
+          // At scale k, the visible map height grows by k.
+          // The excess beyond the viewport is (mapH * k - H) / 2 on each side.
+          const excess = (mapH * k - H) / 2
+          if (excess <= 0) return 0  // map fits entirely — center it
+          return Math.max(-excess, Math.min(excess, ty))
+        }
+
+        // ── Manual drag + wheel handler ──
+        // We bypass D3 zoom entirely for X (rotation) and manage Y + scale ourselves.
+        // This avoids D3's internal tx accumulation fighting our center-anchored scale.
+        let rotLambda = 0
+        let isDragging = false
+        let lastX = 0
+        let lastY = 0
+
+        const pxPerDeg = (k: number) => (W * k) / 360
+
+        const onWheel = (e: WheelEvent) => {
+          e.preventDefault()
+          const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12
+          const newK = Math.max(1, Math.min(12, curKRef.current * factor))
+          // When zoom changes, keep ty proportionally clamped
+          const newTy = clampTy(curTyRef.current * (newK / curKRef.current), newK)
+          curKRef.current = newK
+          curTyRef.current = newTy
+          applyTransform(mapG, W, H, newK, newTy)
+          drawMarkers(proj, newK)
+        }
+
+        const onMouseDown = (e: MouseEvent) => {
+          isDragging = true
+          lastX = e.clientX
+          lastY = e.clientY
+          svg.style.cursor = 'grabbing'
+        }
+
+        const onMouseMove = (e: MouseEvent) => {
+          if (!isDragging) return
+          const dx = e.clientX - lastX
+          const dy = e.clientY - lastY
+          lastX = e.clientX
+          lastY = e.clientY
+
+          // X → rotate projection (sphere rotation, pixel-perfect with markers)
+          rotLambda = (rotLambda + dx / pxPerDeg(curKRef.current)) % 360
+          proj.rotate([rotLambda, 0])
+          redrawPaths()
+
+          // Y → pan with clamp
+          const newTy = clampTy(curTyRef.current + dy, curKRef.current)
+          curTyRef.current = newTy
+          applyTransform(mapG, W, H, curKRef.current, newTy)
+          drawMarkers(proj, curKRef.current)
+        }
+
+        const onMouseUp = () => {
+          isDragging = false
+          svg.style.cursor = 'grab'
+        }
+
+        // Touch support
+        let lastTouchX = 0
+        let lastTouchY = 0
+        let lastTouchDist = 0
+
+        const onTouchStart = (e: TouchEvent) => {
+          if (e.touches.length === 1) {
+            lastTouchX = e.touches[0].clientX
+            lastTouchY = e.touches[0].clientY
+          } else if (e.touches.length === 2) {
+            const dx = e.touches[1].clientX - e.touches[0].clientX
+            const dy = e.touches[1].clientY - e.touches[0].clientY
+            lastTouchDist = Math.hypot(dx, dy)
+          }
+        }
+
+        const onTouchMove = (e: TouchEvent) => {
+          e.preventDefault()
+          if (e.touches.length === 1) {
+            const dx = e.touches[0].clientX - lastTouchX
+            const dy = e.touches[0].clientY - lastTouchY
+            lastTouchX = e.touches[0].clientX
+            lastTouchY = e.touches[0].clientY
+
+            rotLambda = (rotLambda + dx / pxPerDeg(curKRef.current)) % 360
+            proj.rotate([rotLambda, 0])
+            redrawPaths()
+
+            const newTy = clampTy(curTyRef.current + dy, curKRef.current)
+            curTyRef.current = newTy
+            applyTransform(mapG, W, H, curKRef.current, newTy)
+            drawMarkers(proj, curKRef.current)
+          } else if (e.touches.length === 2) {
+            const dx = e.touches[1].clientX - e.touches[0].clientX
+            const dy = e.touches[1].clientY - e.touches[0].clientY
+            const dist = Math.hypot(dx, dy)
+            const factor = dist / lastTouchDist
+            lastTouchDist = dist
+            const newK = Math.max(1, Math.min(12, curKRef.current * factor))
+            const newTy = clampTy(curTyRef.current * (newK / curKRef.current), newK)
+            curKRef.current = newK
+            curTyRef.current = newTy
+            applyTransform(mapG, W, H, newK, newTy)
+            drawMarkers(proj, newK)
+          }
+        }
+
+        svg.addEventListener('wheel',      onWheel,      { passive: false })
+        svg.addEventListener('mousedown',  onMouseDown)
+        svg.addEventListener('mousemove',  onMouseMove)
+        svg.addEventListener('mouseup',    onMouseUp)
+        svg.addEventListener('mouseleave', onMouseUp)
+        svg.addEventListener('touchstart', onTouchStart, { passive: true })
+        svg.addEventListener('touchmove',  onTouchMove,  { passive: false })
+        svg.addEventListener('touchend',   () => { lastTouchDist = 0 })
+
+        // ── Zoom buttons ──
         const ctrlG = document.createElementNS('http://www.w3.org/2000/svg', 'g')
         svg.appendChild(ctrlG)
 
@@ -196,12 +343,28 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
           g.appendChild(rect); g.appendChild(txt); ctrlG.appendChild(g)
         }
 
-        const d3svg = d3.select(svg)
-        mkBtn('+', 8,  () => d3svg.transition().duration(220).call(zoom.scaleBy, 1.7))
-        mkBtn('−', 32, () => d3svg.transition().duration(220).call(zoom.scaleBy, 1 / 1.7))
-        mkBtn('⌂', 60, () => d3svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity))
+        const zoomBy = (factor: number) => {
+          const newK = Math.max(1, Math.min(12, curKRef.current * factor))
+          const newTy = clampTy(curTyRef.current * (newK / curKRef.current), newK)
+          curKRef.current = newK
+          curTyRef.current = newTy
+          applyTransform(mapG, W, H, newK, newTy)
+          drawMarkers(proj, newK)
+        }
 
-        // Legend — bottom left
+        mkBtn('+', 8,  () => zoomBy(1.7))
+        mkBtn('−', 32, () => zoomBy(1 / 1.7))
+        mkBtn('⌂', 60, () => {
+          rotLambda = 0
+          proj.rotate([0, 0])
+          redrawPaths()
+          curKRef.current = 1
+          curTyRef.current = 0
+          applyTransform(mapG, W, H, 1, 0)
+          drawMarkers(proj, 1)
+        })
+
+        // ── Legend ──
         const legG = document.createElementNS('http://www.w3.org/2000/svg', 'g')
         ;[
           { label: 'High', col: '#1D9E75' },
@@ -223,16 +386,16 @@ export default function WorldMap({ countries, selected, onSelect }: Props) {
         initDoneRef.current = true
       }
 
-      drawMarkers(projRef.current, 1)
+      drawMarkers(projRef.current, curKRef.current)
     }
 
     run()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Redraw markers when selection changes without re-initing
+  // Redraw markers on selection change, preserving zoom level
   useEffect(() => {
-    if (projRef.current) drawMarkers(projRef.current, 1)
+    if (projRef.current) drawMarkers(projRef.current, curKRef.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected, countries])
 
