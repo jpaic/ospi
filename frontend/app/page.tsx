@@ -131,7 +131,7 @@ export default function OSPIPage() {
               ) : (
                 <div className="space-y-2">
                   <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">Top anomalies</p>
-                  {sortByDivergence(countries).slice(0, 6).map(c => {
+                  {sortByDivergence(countries).slice(0, 15).map(c => {
                     const d   = Math.round((c.ospi - c.official) / c.official * 100)
                     const isP = d >= 0
                     return (
