@@ -1,0 +1,304 @@
+'use client'
+
+import { useEffect, useRef } from 'react'
+import { countries } from '@/lib/mockData'
+import { calcDelta, confColor, confLabel, globalStats } from '@/lib/estimator'
+import type { Chart as ChartType } from 'chart.js'
+
+export default function DefaultDashboard() {
+  const barRef    = useRef<HTMLCanvasElement>(null)
+  const scatterRef = useRef<HTMLCanvasElement>(null)
+  const barInst   = useRef<ChartType | null>(null)
+  const scatInst  = useRef<ChartType | null>(null)
+
+  const stats = globalStats(countries)
+
+  const topDivergence = [...countries]
+    .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
+    .slice(0, 8)
+
+  const declining = countries.filter(c => c.growthRate < 0)
+  const fastest   = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
+
+  useEffect(() => {
+    if (!barRef.current || !scatterRef.current) return
+
+    const init = async () => {
+      const {
+        Chart, BarController, ScatterController,
+        BarElement, PointElement,
+        LinearScale, CategoryScale, Tooltip, Legend,
+      } = await import('chart.js')
+      Chart.register(BarController, ScatterController, BarElement, PointElement, LinearScale, CategoryScale, Tooltip, Legend)
+
+      barInst.current?.destroy()
+      scatInst.current?.destroy()
+
+      const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+      const tick   = isDark ? '#52525b' : '#a1a1aa'
+      const grid   = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
+      const tooltipBase = {
+        backgroundColor: isDark ? '#18181b' : '#fff',
+        borderColor:     isDark ? '#27272a' : '#e4e4e7',
+        borderWidth: 1,
+        titleColor: isDark ? '#a1a1aa' : '#71717a',
+        bodyColor:  isDark ? '#f4f4f5' : '#18181b',
+        padding: 8,
+      }
+
+      // Divergence bar chart
+      barInst.current = new Chart(barRef.current!, {
+        type: 'bar',
+        data: {
+          labels: topDivergence.map(c => c.name),
+          datasets: [
+            {
+              label: 'Official',
+              data: topDivergence.map(c => c.official),
+              backgroundColor: isDark ? 'rgba(113,113,122,0.35)' : 'rgba(161,161,170,0.35)',
+              borderRadius: 3,
+              barPercentage: 0.65,
+            },
+            {
+              label: 'OSPI',
+              data: topDivergence.map(c => c.ospi),
+              backgroundColor: topDivergence.map(c =>
+                c.ospi > c.official ? '#1D9E75' : '#E24B4A'
+              ),
+              borderRadius: 3,
+              barPercentage: 0.65,
+            },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 12 } },
+            tooltip: { ...tooltipBase, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
+          },
+          scales: {
+            x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
+            y: { ticks: { color: tick, font: { size: 9 }, callback: v => `${v}M` }, grid: { color: grid }, border: { display: false } },
+          },
+        },
+      })
+
+      // Scatter: signal composite vs divergence
+      scatInst.current = new Chart(scatterRef.current!, {
+        type: 'scatter',
+        data: {
+          datasets: [{
+            label: 'Countries',
+            data: countries.map(c => ({
+              x: Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5),
+              y: Math.abs(calcDelta(c)),
+              label: c.name,
+            })),
+            backgroundColor: countries.map(c => confColor(c.conf) + 'bb'),
+            pointRadius: 5,
+            pointHoverRadius: 7,
+          }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              ...tooltipBase,
+              callbacks: {
+                label: (ctx: any) => {
+                  const d = ctx.raw as any
+                  return ` ${d.label}  sig:${d.x}  div:${d.y}%`
+                },
+              },
+            },
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Avg signal score', color: tick, font: { size: 9 } },
+              ticks: { color: tick, font: { size: 9 } },
+              grid: { color: grid },
+              border: { display: false },
+            },
+            y: {
+              title: { display: true, text: 'Divergence %', color: tick, font: { size: 9 } },
+              ticks: { color: tick, font: { size: 9 }, callback: v => `${v}%` },
+              grid: { color: grid },
+              border: { display: false },
+            },
+          },
+        },
+      })
+    }
+
+    init()
+    return () => { barInst.current?.destroy(); scatInst.current?.destroy() }
+  }, [])
+
+  const statCards = [
+    { label: 'Official world pop.',  value: `${(stats.totalOfficial / 1000).toFixed(2)}B`, sub: 'Government census sum' },
+    { label: 'OSPI world estimate',  value: `${(stats.totalOspi / 1000).toFixed(2)}B`,     sub: 'Signal-weighted model' },
+    { label: 'Global gap',           value: `${Math.abs(Math.round(stats.totalOspi - stats.totalOfficial))}M`, sub: 'Absolute divergence', color: '#EF9F27' },
+    { label: 'Avg divergence',       value: `±${stats.avgDivergence}%`,                    sub: 'Across all countries',  color: '#EF9F27' },
+    { label: 'High confidence',      value: `${stats.highConf}`,                            sub: `of ${countries.length} countries`, color: '#1D9E75' },
+    { label: 'Low confidence',       value: `${stats.lowConf}`,                             sub: 'Disputed or sparse',    color: '#E24B4A' },
+  ]
+
+  return (
+    <div
+      className="h-full overflow-y-auto"
+      style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
+    >
+      <style>{`.dd-scroll::-webkit-scrollbar{width:3px}.dd-scroll::-webkit-scrollbar-track{background:transparent}.dd-scroll::-webkit-scrollbar-thumb{background:rgba(113,113,122,0.2);border-radius:99px}`}</style>
+      <div className="dd-scroll h-full overflow-y-auto">
+        <div className="p-4 space-y-4">
+
+          {/* Header */}
+          <div>
+            <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">Global Population Intelligence</h2>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Signal-based population estimates across {countries.length} countries · Select any country for detailed analysis
+            </p>
+          </div>
+
+          {/* KPI strip */}
+          <div className="grid grid-cols-3 gap-2">
+            {statCards.map(k => (
+              <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
+                <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
+                <p className="text-lg font-semibold leading-none" style={k.color ? { color: k.color } : { color: 'var(--tw-prose-body)' }}>
+                  <span className={!k.color ? 'text-zinc-800 dark:text-zinc-100' : ''}>{k.value}</span>
+                </p>
+                <p className="text-[9px] text-zinc-400 mt-1">{k.sub}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Divergence bar chart */}
+          <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Official vs OSPI — top divergence countries</p>
+              <span className="text-[9px] text-zinc-300 dark:text-zinc-600">millions</span>
+            </div>
+            <div style={{ height: 140 }}>
+              <canvas ref={barRef} />
+            </div>
+          </div>
+
+          {/* Row: scatter + fastest growth */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* Scatter */}
+            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-1">Signal quality vs divergence</p>
+              <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Higher signal → lower divergence expected</p>
+              <div style={{ height: 120 }}>
+                <canvas ref={scatterRef} />
+              </div>
+            </div>
+
+            {/* Fastest growing */}
+            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Fastest growing</p>
+              <div className="space-y-2">
+                {fastest.map(c => (
+                  <div key={c.name} className="flex items-center gap-2">
+                    <span
+                      className="w-1.5 h-1.5 rounded-full shrink-0"
+                      style={{ background: confColor(c.conf) }}
+                    />
+                    <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1 truncate">{c.name}</span>
+                    <span className="text-xs font-mono font-semibold text-emerald-500">
+                      +{c.growthRate}%
+                    </span>
+                    <div className="w-16 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-emerald-500 rounded-full"
+                        style={{ width: `${(c.growthRate / 3.5) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-3 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Declining populations</p>
+                <div className="space-y-1.5">
+                  {declining.map(c => (
+                    <div key={c.name} className="flex items-center justify-between">
+                      <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{c.name}</span>
+                      <span className="text-[11px] font-mono font-semibold text-red-500">{c.growthRate}%/yr</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Confidence + region summary table */}
+          <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg overflow-hidden">
+            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries — summary</p>
+              <div className="flex gap-3">
+                {[
+                  { label: 'High', col: '#1D9E75' },
+                  { label: 'Med',  col: '#EF9F27' },
+                  { label: 'Low',  col: '#E24B4A' },
+                ].map(b => (
+                  <span key={b.label} className="flex items-center gap-1 text-[9px]" style={{ color: b.col }}>
+                    <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: b.col }} />
+                    {b.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                  {['Country', 'Region', 'Official', 'OSPI', 'Δ', 'Growth', 'Conf.'].map(h => (
+                    <th key={h} className="text-left px-3 py-1.5 text-[9px] uppercase tracking-wider text-zinc-400 font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {countries.map((c, i) => {
+                  const d    = calcDelta(c)
+                  const isP  = d >= 0
+                  const col  = confColor(c.conf)
+                  return (
+                    <tr key={c.name} className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-zinc-950/30'}`}>
+                      <td className="px-3 py-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: col }} />
+                          <span className="font-medium text-zinc-700 dark:text-zinc-300">{c.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-1.5 text-zinc-400 text-[10px]">{c.region}</td>
+                      <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{c.official}M</td>
+                      <td className="px-3 py-1.5 font-mono font-medium text-zinc-700 dark:text-zinc-300">{c.ospi}M</td>
+                      <td className="px-3 py-1.5 font-mono font-semibold" style={{ color: isP ? '#1D9E75' : '#E24B4A' }}>
+                        {isP ? '+' : ''}{d}%
+                      </td>
+                      <td className="px-3 py-1.5 font-mono text-[10px]" style={{ color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' }}>
+                        {c.growthRate > 0 ? '+' : ''}{c.growthRate}%
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <span
+                          className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                          style={{ background: `${col}18`, color: col }}
+                        >
+                          {confLabel(c.conf)}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  )
+}
