@@ -1,0 +1,37 @@
+export interface SignalScores {
+  telecom: number
+  electricity: number
+  building: number
+  mobility: number
+  internet: number
+}
+
+export interface HistoryPoint {
+  y: number
+  v: number
+}
+
+export interface Region {
+  name: string
+  pop: number      // official regional pop in millions
+  ospi: number     // OSPI estimate
+  conf: 'high' | 'med' | 'low'
+}
+
+export interface Country {
+  name: string
+  iso: string
+  lat: number
+  lng: number
+  official: number
+  ospi: number
+  conf: 'high' | 'med' | 'low'
+  signals: SignalScores
+  history: HistoryPoint[]
+  urbanPct: number       // % urban population
+  growthRate: number     // annual % growth
+  densityKm2: number     // people per km²
+  gdpPerCapita: number   // USD
+  region: string         // continent/macro-region
+  regions: Region[]
+}
