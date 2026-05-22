@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { Country } from '@/lib/mockData'
+import type { Country } from '@/lib/types'
 import { deltaStr, signalColor, confLabel, confColor } from '@/lib/estimator'
 import { useDataSource } from '@/lib/dataSource'
 import type { Chart as ChartType } from 'chart.js'

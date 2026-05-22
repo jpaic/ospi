@@ -4,8 +4,8 @@
  * lib/useCountries.ts
  *
  * Single hook that returns the active countries array based on the
- * current data source (mock or UN). Replace direct imports of
- * `countries` from mockData with this hook in any component.
+ * current data source (UN + backend signals). Replace direct type
+ * imports with this hook in any component.
  *
  * Usage:
  *   const countries = useCountries()
@@ -13,7 +13,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useDataSource } from './dataSource'
-import type { Country, SignalScores } from './mockData'
+import type { Country, SignalScores } from './types'
 import unRaw from './unData.json'
 
 // Cast the static JSON to Country[]. Fields missing from UN data

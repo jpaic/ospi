@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import type { Country } from '@/lib/mockData'
+import type { Country } from '@/lib/types'
 import { deltaStr, confLabel, confColor, globalStats } from '@/lib/estimator'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'

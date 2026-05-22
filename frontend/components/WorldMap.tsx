@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import type { Country } from '@/lib/mockData'
+import type { Country } from '@/lib/types'
 
 interface Props {
   countries: Country[]

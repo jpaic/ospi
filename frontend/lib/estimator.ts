@@ -1,4 +1,4 @@
-import type { Country } from './mockData'
+import type { Country } from './types'
 
 export function calcDelta(c: Country): number {
   return Math.round((c.ospi - c.official) / c.official * 100)
