@@ -45002,8 +45002,8 @@
   {
     "name": "Kosovo (under UNSC res. 1244)",
     "iso": "XK",
-    "lat": 0,
-    "lng": 0,
+    "lat": 42.6026,
+    "lng": 20.9030,
     "region": "Southern Europe",
     "official": 1.6864,
     "ospi": 1.6864,
@@ -50702,9 +50702,9 @@
   {
     "name": "Micronesia",
     "iso": "MJ",
-    "lat": 0,
-    "lng": 0,
-    "region": "Unknown",
+    "lat": 6.8874,
+    "lng": 158.2150,
+    "region": "Micronesia",
     "official": 0.526829,
     "ospi": 0.526829,
     "conf": "low",
