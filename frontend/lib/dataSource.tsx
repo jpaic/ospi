@@ -16,32 +16,21 @@ import {
   type ReactNode,
 } from 'react'
 
-export type DataSource = 'mock' | 'un'
-
 interface DataSourceCtx {
-  source:    DataSource
-  toggle:    () => void
-  isMock:    boolean
-  isUn:      boolean
   /** True when signals are unavailable (i.e. UN source with no model run yet) */
   noSignals: boolean
+  setSignalsAvailable: (available: boolean) => void
 }
 
 const Ctx = createContext<DataSourceCtx | null>(null)
 
 export function DataSourceProvider({ children }: { children: ReactNode }) {
-  const [source, setSource] = useState<DataSource>('mock')
+  const [signalsAvailable, setSignalsAvailable] = useState(false)
 
-  const toggle = useCallback(() => {
-    setSource(s => s === 'mock' ? 'un' : 'mock')
-  }, [])
-
-  const isMock    = source === 'mock'
-  const isUn      = source === 'un'
-  const noSignals = isUn   // extend this check later when your model populates signals
+  const noSignals = !signalsAvailable
 
   return (
-    <Ctx.Provider value={{ source, toggle, isMock, isUn, noSignals }}>
+    <Ctx.Provider value={{ noSignals, setSignalsAvailable }}>
       {children}
     </Ctx.Provider>
   )
