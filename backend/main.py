@@ -1,0 +1,1 @@
+from api.routes import app  # noqa — uvicorn entry point
