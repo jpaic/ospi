@@ -3,14 +3,13 @@
 import { useState, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { DataSourceProvider } from '@/lib/dataSource'
-import { useCountries } from '@/lib/useCountries'
+import { useCountries, fetchBackendCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { sortByDivergence } from '@/lib/estimator'
 import type { Country } from '@/lib/mockData'
 import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
 import DefaultDashboard from '@/components/DefaultDashboard'
-import DataSourceToggle from '@/components/DataSourceToggle'
 
 const WorldMap = dynamic(() => import('@/components/WorldMap'), { ssr: false })
 
@@ -19,8 +18,14 @@ function OSPIInner() {
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
 
-  const { source } = useDataSource()
   const countries = useCountries()
+
+  useEffect(() => {
+    // Prefetch backend data in background when a backend URL is configured
+    if (process.env.NEXT_PUBLIC_BACKEND_URL) {
+      fetchBackendCountries().catch(() => {})
+    }
+  }, [])
 
   const sorted = useMemo(() => sortByDivergence(countries), [countries])
 
@@ -30,10 +35,10 @@ function OSPIInner() {
   )
 
   // reset selection when data source changes
-  useEffect(() => {
-    setSelected(null)
-    setMapResetKey(k => k + 1)
-  }, [source])
+    useEffect(() => {
+      setSelected(null)
+      setMapResetKey(k => k + 1)
+    }, [])
 
   const handleOverviewReset = () => {
     setSelected(null)
@@ -56,10 +61,10 @@ function OSPIInner() {
         <div className="ml-auto flex items-center gap-4">
 
           <span className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-            {countries.length} countries · 5 signals · {source === 'mock' ? 'mock data' : 'UN WPP'}
+              {countries.length} countries · 5 signals · UN WPP
           </span>
 
-          <DataSourceToggle />
+            {/* <DataSourceToggle /> */}
 
           {selected && (
             <button
