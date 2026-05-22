@@ -265,6 +265,15 @@ function nameToIso(name: string): number | null {
   return null
 }
 
+// Normalize a rotation delta to [-180, 180] so animations always
+// take the shortest arc around the globe.
+function normalizeRotDelta(delta: number): number {
+  let d = delta % 360
+  if (d > 180) d -= 360
+  if (d < -180) d += 360
+  return d
+}
+
 export default function WorldMap({ countries, selected, onSelect, resetKey }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
   const projRef = useRef<any>(null)
@@ -444,37 +453,35 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const START_ROT = curRotRef.current
 
     const isoId = nameToIso(country.name)
-
-    const featurePath =
-      isoId != null
-        ? featurePathsRef.current.get(isoId)
-        : null
-
+    const featurePath = isoId != null ? featurePathsRef.current.get(isoId) : null
     const feature = (featurePath as any)?.__feature__
 
-    let TARGET_K = 2.5
+    // Calculate target rotation (center country horizontally)
+    const targetRot = -country.lng
+
+    // Compute coords with the TARGET rotation so targetTy is correct
+    const originalRot = proj.rotate()
+    proj.rotate([targetRot, 0])
+    const coords = proj([country.lng, country.lat])
+    // Compute bounding-box-based zoom WHILE rotated to target, so bounds are in view-space
+    let TARGET_K = 12  // high fallback for micro-states not in 110m topojson
 
     if (feature) {
       const pathGen = pathGenRef.current
       const bounds = pathGen.bounds(feature)
-
       const dx = bounds[1][0] - bounds[0][0]
       const dy = bounds[1][1] - bounds[0][1]
 
-      const scale = 0.75 / Math.max(dx / W, dy / H)
-
-      TARGET_K = Math.min(12, Math.max(1.8, scale))
+      if (dx < 1 || dy < 1) {
+        // Feature exists but is sub-pixel at 110m resolution
+        TARGET_K = 12
+      } else {
+        const scale = 0.75 / Math.max(dx / W, dy / H)
+        TARGET_K = Math.min(12, Math.max(2, scale))
+      }
     }
 
-    // Calculate target rotation (center country)
-    const targetRot = -country.lng
-
-    // SAFE: Calculate target translation by temporarily saving state, 
-    // rotating projection, measuring, then restoring
-    const originalRot = proj.rotate()
-    proj.rotate([targetRot, 0])
-    const coords = proj([country.lng, country.lat])
-    proj.rotate(originalRot) // Restore original rotation
+    proj.rotate(originalRot) // restore original rotation
 
     let targetTy = 0
     if (coords) {
@@ -482,6 +489,9 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
       targetTy = cy - TARGET_K * coords[1] - cy * (1 - TARGET_K)
       targetTy = clampTy(targetTy, TARGET_K)
     }
+
+    // Pre-compute the shortest rotation delta (avoids wraparound the long way)
+    const rotDelta = normalizeRotDelta(targetRot - START_ROT)
 
     const DURATION = 600
     const start = performance.now()
@@ -493,7 +503,8 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
 
       const k = START_K + (TARGET_K - START_K) * e
       const ty = START_TY + (targetTy - START_TY) * e
-      const rot = START_ROT + (targetRot - START_ROT) * e
+      // Use pre-normalized delta so we always take the short arc
+      const rot = START_ROT + rotDelta * e
 
       curKRef.current = k
       curTyRef.current = ty
@@ -515,12 +526,9 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     animFrameRef.current = requestAnimationFrame(tick)
   }
 
-  // Reset function that properly resets all map state
-  // Reset function that smoothly animates to default position
   const resetMap = () => {
     if (!projRef.current || !mapGRef.current) return
 
-    // Cancel any ongoing animation
     if (animFrameRef.current != null) {
       cancelAnimationFrame(animFrameRef.current)
       animFrameRef.current = null
@@ -537,7 +545,10 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const mapG = mapGRef.current
     const proj = projRef.current
 
-    const DURATION = 500 // 500ms smooth animation
+    // Pre-compute shortest rotation delta back to 0
+    const rotDelta = normalizeRotDelta(TARGET_ROT - START_ROT)
+
+    const DURATION = 500
     const start = performance.now()
     const ease = (t: number) => t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t
 
@@ -547,7 +558,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
 
       const k = START_K + (TARGET_K - START_K) * e
       const ty = START_TY + (TARGET_TY - START_TY) * e
-      const rot = START_ROT + (TARGET_ROT - START_ROT) * e
+      const rot = START_ROT + rotDelta * e
 
       curKRef.current = k
       curTyRef.current = ty
@@ -580,7 +591,6 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const svg = svgRef.current
     if (!svg) return
 
-    // FIX: Use getBoundingClientRect for accurate size
     const rect = svg.getBoundingClientRect()
     const W = rect.width || 320
     const H = rect.height || 320
@@ -715,7 +725,6 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
           lastX = e.clientX
           lastY = e.clientY
 
-          // Always read current rotation from the ref
           const newRot = (curRotRef.current + dx / pxPerDeg(curKRef.current)) % 360
           curRotRef.current = newRot
           proj.rotate([newRot, 0])
@@ -863,7 +872,6 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
 
     run()
 
-    // Cleanup
     return () => {
       if (animFrameRef.current) {
         cancelAnimationFrame(animFrameRef.current)
