@@ -1,9 +1,24 @@
 
+CREATE TABLE IF NOT EXISTS country_metadata (
+    iso2          CHAR(2)      PRIMARY KEY,
+    iso3          CHAR(3),
+    name          TEXT         NOT NULL,
+    lat           NUMERIC,
+    lng           NUMERIC,
+    region        TEXT,
+    urban_pct     NUMERIC      DEFAULT 0,
+    density_km2   NUMERIC      DEFAULT 0,
+    gdp_per_capita NUMERIC     DEFAULT 0,
+    fetched_at    TIMESTAMPTZ  DEFAULT now()
+);
+ 
+CREATE INDEX IF NOT EXISTS idx_country_metadata_iso3 ON country_metadata (iso3);
+
 CREATE TABLE IF NOT EXISTS populations (
     id          SERIAL PRIMARY KEY,
     iso2        CHAR(2)      NOT NULL,
     year        INT          NOT NULL,
-    population  NUMERIC      NOT NULL,  -- in millions, matching UN data
+    population  NUMERIC      NOT NULL,
     fetched_at  TIMESTAMPTZ  DEFAULT now(),
 
     UNIQUE (iso2, year)

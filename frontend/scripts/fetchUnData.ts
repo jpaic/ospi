@@ -15,353 +15,295 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 import 'dotenv/config'
 
-// ES module compatible __dirname
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 const BASE = 'https://population.un.org/dataportalapi/api/v1'
 const INDICATOR_TOTAL_POP = 49   // PopTotal — in people
+const MEDIUM_VARIANT_ID   = 4    // UN WPP: 4=Medium, 5=High, 6=Low
 const START_YEAR = 2018
-const END_YEAR = 2024
+const END_YEAR   = 2024
 
 const UN_API_TOKEN = process.env.UN_API_TOKEN
 
+// ── Types ────────────────────────────────────────────────────────────────────
+
 interface Location {
-    Id: number
-    Name: string
-    Iso2: string | null
-    Iso3: string | null
-    Latitude: number | null
-    Longitude: number | null
-    Region: string | null
-    SubRegion: string | null
-    WorldBankIncomeGroup: string | null
-    UNDevelopmentGroup: string | null
-    SDGRegion: string | null
-    PopPeak: string | null
+  Id:       number
+  Name:     string
+  Iso2:     string | null
+  Iso3:     string | null
+  Latitude: number | null
+  Longitude: number | null
+  SubRegion: string | null
 }
 
-interface UnDataPoint { timeLabel: string; value: number }
+interface HistoryPoint {
+  y: number   // year
+  v: number   // population in millions, rounded to 4 dp
+}
 
 interface CountryData {
-    name: string
-    iso: string
-    lat: number
-    lng: number
-    region: string
-    official: number
-    ospi: number
-    conf: 'low' | 'medium' | 'high'
-    signals: {
-        telecom: number
-        electricity: number
-        building: number
-        mobility: number
-        internet: number
-    }
-    history: Array<{ y: number; v: number }>
-    urbanPct: number
-    growthRate: number
-    densityKm2: number
-    gdpPerCapita: number
-    regions: any[]
+  name:        string
+  iso:         string
+  lat:         number
+  lng:         number
+  region:      string
+  official:    number   // latest year's population (millions)
+  ospi:        number   // mirrors official until model runs
+  conf:        'low' | 'med' | 'high'
+  signals: {
+    telecom:     number
+    electricity: number
+    building:    number
+    mobility:    number
+    internet:    number
+  }
+  history:     HistoryPoint[]   // one entry per year, medium variant total
+  urbanPct:    number
+  growthRate:  number           // % p.a., derived from last two annual totals
+  densityKm2:  number
+  gdpPerCapita: number
+  regions:     any[]
 }
 
-// List of UN member states + observers
+// ── Sovereign country filter ──────────────────────────────────────────────────
+
 const SOVEREIGN_COUNTRIES = new Set([
-    'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola',
-    'Antigua and Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria',
-    'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados',
-    'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan',
-    'Bolivia (Plurinational State of)', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei Darussalam',
-    'Bulgaria', 'Burkina Faso', 'Burundi', 'Cabo Verde', 'Cambodia',
-    'Cameroon', 'Canada', 'Central African Republic', 'Chad', 'Chile',
-    'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica',
-    "Côte d'Ivoire", 'Croatia', 'Cuba', 'Cyprus', 'Czechia',
-    'Dem. People\'s Rep. of Korea', 'Democratic Republic of the Congo', 'Denmark', 'Djibouti', 'Dominica',
-    'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea',
-    'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji',
-    'Finland', 'France', 'Gabon', 'Gambia', 'Georgia',
-    'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala',
-    'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras',
-    'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran (Islamic Republic of)',
-    'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica',
-    'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati',
-    'Kuwait', 'Kyrgyzstan', 'Kosovo (under UNSC res. 1244)', 'Lao People\'s Democratic Republic', 'Latvia', 'Lebanon',
-    'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania',
-    'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives',
-    'Mali', 'Malta', 'Marshall Islands', 'Mauritania', 'Mauritius',
-    'Mexico', 'Micronesia', 'Monaco', 'Mongolia', 'Montenegro',
-    'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru',
-    'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger',
-    'Nigeria', 'North Macedonia', 'Norway', 'Oman', 'Pakistan',
-    'Palau', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru',
-    'Philippines', 'Poland', 'Portugal', 'Qatar', 'Republic of Korea',
-    'Republic of Moldova', 'Romania', 'Russian Federation', 'Rwanda', 'Saint Kitts and Nevis',
-    'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe',
-    'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone',
-    'Singapore', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia',
-    'South Africa', 'South Sudan', 'Spain', 'Sri Lanka', 'State of Palestine',
-    'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syrian Arab Republic',
-    'China, Taiwan Province of China', 'Tajikistan', 'Thailand', 'Timor-Leste', 'Togo', 'Tonga',
-    'Trinidad and Tobago', 'Tunisia', 'Türkiye', 'Turkmenistan', 'Tuvalu',
-    'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United Republic of Tanzania',
-    'United States of America', 'Uruguay', 'Uzbekistan', 'Vanuatu', 'Venezuela (Bolivarian Republic of)',
-    'Viet Nam', 'Yemen', 'Zambia', 'Zimbabwe'
+  'Afghanistan', 'Albania', 'Algeria', 'Andorra', 'Angola',
+  'Antigua and Barbuda', 'Argentina', 'Armenia', 'Australia', 'Austria',
+  'Azerbaijan', 'Bahamas', 'Bahrain', 'Bangladesh', 'Barbados',
+  'Belarus', 'Belgium', 'Belize', 'Benin', 'Bhutan',
+  'Bolivia (Plurinational State of)', 'Bosnia and Herzegovina', 'Botswana', 'Brazil', 'Brunei Darussalam',
+  'Bulgaria', 'Burkina Faso', 'Burundi', 'Cabo Verde', 'Cambodia',
+  'Cameroon', 'Canada', 'Central African Republic', 'Chad', 'Chile',
+  'China', 'Colombia', 'Comoros', 'Congo', 'Costa Rica',
+  "Côte d'Ivoire", 'Croatia', 'Cuba', 'Cyprus', 'Czechia',
+  "Dem. People's Rep. of Korea", 'Democratic Republic of the Congo', 'Denmark', 'Djibouti', 'Dominica',
+  'Dominican Republic', 'Ecuador', 'Egypt', 'El Salvador', 'Equatorial Guinea',
+  'Eritrea', 'Estonia', 'Eswatini', 'Ethiopia', 'Fiji',
+  'Finland', 'France', 'Gabon', 'Gambia', 'Georgia',
+  'Germany', 'Ghana', 'Greece', 'Grenada', 'Guatemala',
+  'Guinea', 'Guinea-Bissau', 'Guyana', 'Haiti', 'Honduras',
+  'Hungary', 'Iceland', 'India', 'Indonesia', 'Iran (Islamic Republic of)',
+  'Iraq', 'Ireland', 'Israel', 'Italy', 'Jamaica',
+  'Japan', 'Jordan', 'Kazakhstan', 'Kenya', 'Kiribati',
+  'Kuwait', 'Kyrgyzstan', 'Kosovo (under UNSC res. 1244)', "Lao People's Democratic Republic", 'Latvia', 'Lebanon',
+  'Lesotho', 'Liberia', 'Libya', 'Liechtenstein', 'Lithuania',
+  'Luxembourg', 'Madagascar', 'Malawi', 'Malaysia', 'Maldives',
+  'Mali', 'Malta', 'Marshall Islands', 'Mauritania', 'Mauritius',
+  'Mexico', 'Micronesia', 'Monaco', 'Mongolia', 'Montenegro',
+  'Morocco', 'Mozambique', 'Myanmar', 'Namibia', 'Nauru',
+  'Nepal', 'Netherlands', 'New Zealand', 'Nicaragua', 'Niger',
+  'Nigeria', 'North Macedonia', 'Norway', 'Oman', 'Pakistan',
+  'Palau', 'Panama', 'Papua New Guinea', 'Paraguay', 'Peru',
+  'Philippines', 'Poland', 'Portugal', 'Qatar', 'Republic of Korea',
+  'Republic of Moldova', 'Romania', 'Russian Federation', 'Rwanda', 'Saint Kitts and Nevis',
+  'Saint Lucia', 'Saint Vincent and the Grenadines', 'Samoa', 'San Marino', 'Sao Tome and Principe',
+  'Saudi Arabia', 'Senegal', 'Serbia', 'Seychelles', 'Sierra Leone',
+  'Singapore', 'Slovakia', 'Slovenia', 'Solomon Islands', 'Somalia',
+  'South Africa', 'South Sudan', 'Spain', 'Sri Lanka', 'State of Palestine',
+  'Sudan', 'Suriname', 'Sweden', 'Switzerland', 'Syrian Arab Republic',
+  'China, Taiwan Province of China', 'Tajikistan', 'Thailand', 'Timor-Leste', 'Togo', 'Tonga',
+  'Trinidad and Tobago', 'Tunisia', 'Türkiye', 'Turkmenistan', 'Tuvalu',
+  'Uganda', 'Ukraine', 'United Arab Emirates', 'United Kingdom', 'United Republic of Tanzania',
+  'United States of America', 'Uruguay', 'Uzbekistan', 'Vanuatu', 'Venezuela (Bolivarian Republic of)',
+  'Viet Nam', 'Yemen', 'Zambia', 'Zimbabwe',
 ])
 
+// ── API helpers ───────────────────────────────────────────────────────────────
+
 async function fetchAllLocations(): Promise<Location[]> {
-    const allLocations: Location[] = []
-    let page = 1
-    const pageSize = 250
-    let totalPages = 1
+  const all: Location[] = []
+  let page = 1
+  let totalPages = 1
 
-    while (page <= totalPages) {
-        // Use the locationsWithAggregates endpoint
-        const url = `${BASE}/locationsWithAggregates?pageNumber=${page}&pageSize=${pageSize}`
-        console.log(`Fetching page ${page} of locations...`)
+  while (page <= totalPages) {
+    const url = `${BASE}/locationsWithAggregates?pageNumber=${page}&pageSize=250`
+    console.log(`Fetching locations page ${page}/${totalPages}…`)
 
-        const res = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${UN_API_TOKEN}`
-            }
-        })
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${UN_API_TOKEN}` } })
+    if (!res.ok) throw new Error(`Locations fetch failed: ${res.status}`)
 
-        if (!res.ok) throw new Error(`Failed to fetch locations: ${res.status}`)
-        const response = await res.json() as any
+    const body = await res.json() as { data: Location[]; pages: number }
+    all.push(...body.data)
+    totalPages = body.pages ?? 1
+    page++
+  }
 
-        if (response.data && Array.isArray(response.data)) {
-            allLocations.push(...response.data)
-
-            if (response.pages) {
-                totalPages = response.pages
-            }
-
-            console.log(`  Found ${response.data.length} locations on page ${page} (${allLocations.length}/${response.total} total)`)
-            page++
-        } else {
-            console.error('Unexpected response structure:', Object.keys(response))
-            break
-        }
-    }
-
-    console.log(`\nTotal locations fetched: ${allLocations.length}`)
-    return allLocations
+  console.log(`\nTotal locations: ${all.length}`)
+  return all
 }
 
-async function fetchPopulation(locationId: number): Promise<UnDataPoint[]> {
-    const url = `${BASE}/data/indicators/${INDICATOR_TOTAL_POP}/locations/${locationId}/start/${START_YEAR}/end/${END_YEAR}/?format=json&pageSize=100`
+async function fetchPopulation(locationId: number): Promise<HistoryPoint[]> {
+  const url =
+    `${BASE}/data/indicators/${INDICATOR_TOTAL_POP}` +
+    `/locations/${locationId}/start/${START_YEAR}/end/${END_YEAR}` +
+    `/?format=json&pageSize=200`
 
-    const res = await fetch(url, {
-        headers: {
-            'Authorization': `Bearer ${UN_API_TOKEN}`
-        }
-    })
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${UN_API_TOKEN}` } })
+  if (!res.ok) throw new Error(`API error: ${res.status} ${res.statusText}`)
 
-    if (!res.ok) {
-        throw new Error(`API error: ${res.status} ${res.statusText}`)
+  const json = await res.json() as any
+  const rows: any[] = json.data ?? (Array.isArray(json) ? json : [])
+
+  const yearMap = new Map<number, number>()
+
+  for (const row of rows) {
+    if (row.variantId !== MEDIUM_VARIANT_ID) continue
+    if (row.value == null) continue
+
+    const year = Number(row.timeLabel)
+    const pop  = parseFloat((row.value / 1_000_000).toFixed(4))
+
+    if (!yearMap.has(year)) {
+      yearMap.set(year, pop)
     }
+  }
 
-    const json = await res.json() as any
-
-    let allData: any[] = []
-
-    if (json.data && Array.isArray(json.data)) {
-        allData = json.data
-    } else if (Array.isArray(json)) {
-        allData = json
-    }
-
-    // The API returns values in people, convert to millions
-    return allData.map((point: any) => ({
-        timeLabel: point.timeLabel,
-        value: point.value / 1_000_000
-    }))
+  return Array.from(yearMap.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([y, v]) => ({ y, v }))
 }
 
-// Wrapper function with retry logic for 502 errors
-async function fetchPopulationWithRetry(
-    locationId: number,
-    locationName: string,
-    maxRetries: number = 3
-): Promise<UnDataPoint[]> {
-    let lastError: Error | null = null
-
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            return await fetchPopulation(locationId)
-        } catch (err) {
-            const error = err as Error
-            lastError = error
-
-            // Check if it's a 502 error
-            const is502 = error.message.includes('502')
-
-            if (is502 && attempt < maxRetries) {
-                // Exponential backoff: 1s, 2s, 4s
-                const delay = Math.pow(2, attempt - 1) * 1000
-                console.log(`${locationName}: 502 error, retry ${attempt}/${maxRetries} in ${delay}ms`)
-                await new Promise(resolve => setTimeout(resolve, delay))
-                continue
-            }
-
-            // If not 502 or out of retries, throw the error
-            throw error
-        }
+async function fetchWithRetry(
+  locationId: number,
+  name: string,
+  retries = 3,
+): Promise<HistoryPoint[]> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetchPopulation(locationId)
+    } catch (err: any) {
+      if (err.message?.includes('502') && attempt < retries) {
+        const delay = Math.pow(2, attempt - 1) * 1000
+        console.log(`  ${name}: 502 error — retry ${attempt}/${retries} in ${delay}ms`)
+        await new Promise(r => setTimeout(r, delay))
+        continue
+      }
+      throw err
     }
-
-    throw lastError || new Error(`Failed to fetch data for ${locationName} after ${maxRetries} attempts`)
+  }
+  throw new Error(`Failed after ${retries} retries: ${name}`)
 }
+
+// ── Growth rate ───────────────────────────────────────────────────────────────
+
+function calcGrowthRate(history: HistoryPoint[]): number {
+  if (history.length < 2) return 0
+  const latest = history[history.length - 1]
+  const prev   = history[history.length - 2]
+  if (!prev || prev.v === 0) return 0
+  return parseFloat(((latest.v - prev.v) / prev.v * 100).toFixed(4))
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
-    console.log('Fetching all countries from UN Data Portal...\n')
+  console.log('Fetching UN WPP population data (Medium variant only)…\n')
 
-    const allLocations = await fetchAllLocations()
+  const allLocations = await fetchAllLocations()
 
-    // Filter to include only sovereign countries
-    const countries = allLocations.filter(loc => {
-        // Must have Iso2 code (basic validation)
-        if (!loc.Iso2 || loc.Iso2.length !== 2) return false
+  const countries = allLocations.filter(
+    loc => loc.Iso2?.length === 2 && SOVEREIGN_COUNTRIES.has(loc.Name),
+  )
+  console.log(`\n${countries.length} sovereign countries identified\n`)
 
-        // Check if it's a sovereign country by name
-        return SOVEREIGN_COUNTRIES.has(loc.Name)
-    })
+  const result: CountryData[] = []
+  let successCount  = 0
+  let noDataCount   = 0
+  let failCount     = 0
 
-    console.log(`\n  ${countries.length} sovereign countries identified out of ${allLocations.length} total locations\n`)
+  for (let i = 0; i < countries.length; i++) {
+    const country = countries[i]
 
-    if (countries.length === 0) {
-        console.error('No countries found!')
-        console.log('\n💡 Debug: Here are the first 20 locations from API:')
-        allLocations.slice(0, 20).forEach((loc, idx) => {
-            console.log(`  ${idx + 1}. ${loc.Name} - Iso2: ${loc.Iso2 || 'null'}, SubRegion: ${loc.SubRegion || 'null'}`)
-        })
-        return
+    if (i > 0 && i % 10 === 0) {
+      console.log(
+        `  Progress: ${i}/${countries.length} — ` +
+        `${successCount} successful · ${noDataCount} no data · ${failCount} failed`,
+      )
     }
 
-    console.log('Sample countries:')
-    countries.slice(0, 10).forEach(c => {
-        console.log(`  - ${c.Name} (${c.Iso2})`)
-    })
-    console.log('')
+    try {
+      const history = await fetchWithRetry(country.Id, country.Name)
 
-    console.log('  Fetching population data for all countries...\n')
-    const result: CountryData[] = []
-    let successCount = 0
-    let failCount = 0
-    let noDataCount = 0
+      if (history.length === 0) {
+        noDataCount++
+        continue
+      }
 
-    for (let i = 0; i < countries.length; i++) {
-        const country = countries[i]
+      const latest  = history[history.length - 1]
+      const official = latest.v
 
-        // Show progress every 10 countries
-        if (i % 10 === 0 && i > 0) {
-            console.log(`  Progress: ${i}/${countries.length} countries processed (${successCount} successful, ${noDataCount} no data, ${failCount} failed)`)
-        }
+      if (official === 0) {
+        noDataCount++
+        continue
+      }
 
-        try {
-            // Use the retry wrapper instead of direct fetchPopulation
-            const rows = await fetchPopulationWithRetry(country.Id, country.Name)
+      result.push({
+        name:         country.Name,
+        iso:          country.Iso2!,
+        lat:          country.Latitude  ?? 0,
+        lng:          country.Longitude ?? 0,
+        region:       country.SubRegion ?? 'Unknown',
+        official,
+        ospi:         official,
+        conf:         'low',
+        signals: {
+          telecom:     0,
+          electricity: 0,
+          building:    0,
+          mobility:    0,
+          internet:    0,
+        },
+        history,
+        urbanPct:     0,
+        growthRate:   calcGrowthRate(history),
+        densityKm2:   0,
+        gdpPerCapita: 0,
+        regions:      [],
+      })
 
-            if (rows.length === 0) {
-                noDataCount++
-                continue
-            }
+      successCount++
+      if (successCount <= 5) {
+        console.log(
+          `  ${country.Name} — ${official.toLocaleString()}M · ` +
+          `${history.length} years · growth ${result[result.length - 1].growthRate.toFixed(2)}%`,
+        )
+      }
 
-            // Sort ascending by year
-            rows.sort((a, b) => Number(a.timeLabel) - Number(b.timeLabel))
-
-            const history = rows.map(r => ({
-                y: Number(r.timeLabel),
-                v: r.value,
-            }))
-
-            // Latest year = official population
-            const latest = history[history.length - 1]
-            const official = latest?.v ?? 0
-
-            // Skip if population is 0 (likely no data)
-            if (official === 0) {
-                noDataCount++
-                continue
-            }
-
-            // Derive a rough growth rate from the last two data points
-            const prev = history[history.length - 2]
-            const growthRate = prev && prev.v > 0
-                ? ((latest.v - prev.v) / prev.v) * 100  // Returns decimal like 1.23 for 1.23%
-                : 0
-
-            // Use coordinates from API
-            const lat = country.Latitude ?? 0
-            const lng = country.Longitude ?? 0
-
-            const region = country.SubRegion || 'Unknown'
-
-            result.push({
-                name: country.Name,
-                iso: country.Iso2 || '',
-                lat: lat,
-                lng: lng,
-                region: region,
-                official,
-                ospi: official,
-                conf: 'low' as const,
-                signals: {
-                    telecom: 0,
-                    electricity: 0,
-                    building: 0,
-                    mobility: 0,
-                    internet: 0,
-                },
-                history,
-                urbanPct: 0,
-                growthRate,
-                densityKm2: 0,
-                gdpPerCapita: 0,
-                regions: [],
-            })
-
-            successCount++
-
-            // Log first 20 successes to see progress
-            if (successCount <= 20) {
-                console.log(`${country.Name} — ${official.toLocaleString()}M (${region})`)
-            }
-
-            // Add a small delay to be nice to the API and prevent rate limiting
-            await new Promise(resolve => setTimeout(resolve, 200))
-        } catch (err) {
-            failCount++
-            // Error already logged in retry function, only log if it's not a 502 retry case
-            if (failCount <= 10) {
-                console.error(`${country.Name}:`, err instanceof Error ? err.message : err)
-            }
-        }
+      await new Promise(r => setTimeout(r, 200))
+    } catch (err) {
+      failCount++
+      if (failCount <= 10) {
+        console.error(`  ✗ ${country.Name}:`, err instanceof Error ? err.message : err)
+      }
     }
+  }
 
-    // Sort by population (largest first)
-    result.sort((a, b) => b.official - a.official)
+  // Sort by population descending
+  result.sort((a, b) => b.official - a.official)
 
-    const outPath = path.resolve(__dirname, '../lib/unData.json')
+  // ── Write output ────────────────────────────────────────────────────────────
+  const outPath = path.resolve(__dirname, '../lib/unData.json')
+  const libDir  = path.dirname(outPath)
+  if (!fs.existsSync(libDir)) fs.mkdirSync(libDir, { recursive: true })
 
-    // Ensure the lib directory exists
-    const libDir = path.dirname(outPath)
-    if (!fs.existsSync(libDir)) {
-        fs.mkdirSync(libDir, { recursive: true })
-    }
+  fs.writeFileSync(outPath, JSON.stringify(result, null, 2))
 
-    fs.writeFileSync(outPath, JSON.stringify(result, null, 2))
-
-    console.log(`\n   Done!`)
-    console.log(`   • Successfully fetched: ${successCount} countries`)
-    console.log(`   • No data available: ${noDataCount} countries`)
-    console.log(`   • Failed: ${failCount} countries`)
-    console.log(`   • Total countries in dataset: ${result.length}`)
-    console.log(`   • Data saved to: ${outPath}`)
-    console.log(`\n  Top 20 most populous countries:`)
-    result.slice(0, 20).forEach((c, i) => {
-        console.log(`   ${i + 1}. ${c.name}: ${c.official.toLocaleString()}M (${c.region})`)
-    })
+  console.log(`\n✓ Done`)
+  console.log(`  Successfully fetched : ${successCount}`)
+  console.log(`  No data / skipped    : ${noDataCount}`)
+  console.log(`  Failed               : ${failCount}`)
+  console.log(`  Written to           : ${outPath}`)
+  console.log(`\n  Top 10:`)
+  result.slice(0, 10).forEach((c, i) => {
+    console.log(
+      `    ${String(i + 1).padStart(2)}. ${c.name.padEnd(35)} ` +
+      `${c.official.toFixed(2).padStart(8)}M  ` +
+      `growth ${c.growthRate >= 0 ? '+' : ''}${c.growthRate.toFixed(2)}%`,
+    )
+  })
 }
 
 main().catch(console.error)

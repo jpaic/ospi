@@ -8,12 +8,13 @@ from psycopg2.extras import execute_values
 
 load_dotenv()
 
-UN_API_TOKEN = os.getenv("UN_API_TOKEN")
-BASE = "https://population.un.org/dataportalapi/api/v1"
+UN_API_TOKEN      = os.getenv("UN_API_TOKEN")
+BASE              = "https://population.un.org/dataportalapi/api/v1"
 INDICATOR_TOTAL_POP = 49
-MEDIUM_VARIANT_ID = 4  # UN WPP projection variant IDs: 4=Medium, 5=High, 6=Low (see /dataportalapi/api/v1/variants)
-START_YEAR = 2018
-END_YEAR = 2024
+MEDIUM_VARIANT_ID = 4   # UN WPP: 4=Medium, 5=High, 6=Low
+SEX_BOTH          = 3   # 1=Male, 2=Female, 3=Both sexes — required to avoid half-population rows
+START_YEAR        = 2018
+END_YEAR          = 2024
 
 HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
 
@@ -50,7 +51,7 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
     url = (
         f"{BASE}/data/indicators/{INDICATOR_TOTAL_POP}"
         f"/locations/{location_id}/start/{START_YEAR}/end/{END_YEAR}"
-        f"/?format=json&pageSize=100"
+        f"/?format=json&pageSize=200"
     )
 
     for attempt in range(max_retries):
@@ -63,13 +64,18 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
             if not rows:
                 return []
 
-            rows.sort(key=lambda row: int(row["timeLabel"]))
-
             year_map = {}
             for row in rows:
-                if row.get("value") is not None and row.get("variantId") == MEDIUM_VARIANT_ID:
-                    year = int(row["timeLabel"])
-                    year_map[year] = row["value"] / 1_000_000
+                if row.get("variantId") != MEDIUM_VARIANT_ID:
+                    continue
+                if row.get("sexId") != SEX_BOTH:        # ← fix: exclude male/female splits
+                    continue
+                if row.get("value") is None:
+                    continue
+
+                year = int(row["timeLabel"])
+                if year not in year_map:                 # first matching row per year wins
+                    year_map[year] = round(row["value"] / 1_000_000, 4)
 
             return [{"year": year, "population": pop} for year, pop in sorted(year_map.items())]
 
@@ -103,7 +109,6 @@ def filter_locations(all_locations: list[dict], valid_iso2: set[str], valid_iso3
         if iso3 not in valid_iso3:
             skipped += 1
             continue
-
         if iso2 not in valid_iso2:
             skipped_not_valid.append(f"{iso2} ({loc.get('Name', '?')})")
             continue
@@ -111,6 +116,41 @@ def filter_locations(all_locations: list[dict], valid_iso2: set[str], valid_iso3
         countries.append(loc)
 
     return countries, skipped, skipped_not_valid
+
+
+def store_metadata(countries: list[dict]):
+    """Upsert static country fields into country_metadata."""
+    rows = [
+        (
+            loc["Iso2"],
+            loc.get("Iso3") or None,
+            loc["Name"],
+            loc.get("Latitude"),
+            loc.get("Longitude"),
+            loc.get("SubRegion") or "Unknown",
+        )
+        for loc in countries
+    ]
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            execute_values(
+                cur,
+                """
+                INSERT INTO country_metadata (iso2, iso3, name, lat, lng, region)
+                VALUES %s
+                ON CONFLICT (iso2) DO UPDATE SET
+                    iso3       = EXCLUDED.iso3,
+                    name       = EXCLUDED.name,
+                    lat        = EXCLUDED.lat,
+                    lng        = EXCLUDED.lng,
+                    region     = EXCLUDED.region,
+                    fetched_at = now()
+                """,
+                rows,
+            )
+        conn.commit()
+    print(f"  Stored {len(rows)} rows in country_metadata")
 
 
 def fetch_population_signals() -> dict[str, list[dict]]:
@@ -132,6 +172,10 @@ def fetch_population_signals() -> dict[str, list[dict]]:
     if not countries:
         print("No countries found!")
         return {}
+
+    # Store metadata while we have the full location objects
+    print("\nStoring country metadata...")
+    store_metadata(countries)
 
     print("\nFetching population data for all countries...\n")
     results = {}

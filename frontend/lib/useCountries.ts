@@ -3,44 +3,18 @@
 /**
  * lib/useCountries.ts
  *
- * Single hook that returns the active countries array based on the
- * current data source (UN + backend signals). Replace direct type
- * imports with this hook in any component.
- *
- * Usage:
- *   const countries = useCountries()
+ * Fetches the full Country dataset from the backend /countries/full endpoint.
+ * No longer depends on the static unData.json baseline.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useDataSource } from './dataSource'
 import type { Country, SignalScores } from './types'
-import unRaw from './unData.json'
 
-// Cast the static JSON to Country[]. Fields missing from UN data
-// (urbanPct, densityKm2, gdpPerCapita, regions) are zeroed/empty
-// in the fetch script, so the shape is always valid.
-const initialUnCountries: Country[] = (unRaw as unknown as Country[]).map((country) => ({
-  ...country,
-  signals: {
-    telecom: country.signals?.telecom ?? 0,
-    electricity: country.signals?.electricity ?? 0,
-    building: country.signals?.building ?? 0,
-    mobility: country.signals?.mobility ?? 0,
-    internet: country.signals?.internet ?? 0,
-  },
-  history: country.history ?? [],
-  regions: country.regions ?? [],
-  urbanPct: country.urbanPct ?? 0,
-  densityKm2: country.densityKm2 ?? 0,
-  gdpPerCapita: country.gdpPerCapita ?? 0,
-  growthRate: country.growthRate ?? 0,
-}))
+const CACHE_KEY = 'ospi:countries:v2'   // bumped to bust old unData-based cache
+const CACHE_TTL = 24 * 60 * 60 * 1000  // 24 h
 
-let cachedBackendCountries: Country[] | null = null
-let cachedBackendPromise: Promise<Country[]> | null = null
-
-const CACHE_KEY = 'ospi:countries'
-const CACHE_TTL = 24 * 60 * 60 * 1000 // 24 hours
+// ── Cache helpers ─────────────────────────────────────────────────────────────
 
 function loadCachedCountries(): Country[] | null {
   if (typeof window === 'undefined') return null
@@ -48,11 +22,10 @@ function loadCachedCountries(): Country[] | null {
     const raw = localStorage.getItem(CACHE_KEY)
     if (!raw) return null
     const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    if (!parsed.ts || !Array.isArray(parsed.countries)) return null
+    if (!parsed?.ts || !Array.isArray(parsed.countries)) return null
     if (Date.now() - parsed.ts > CACHE_TTL) return null
     return parsed.countries as Country[]
-  } catch (e) {
+  } catch {
     return null
   }
 }
@@ -61,145 +34,113 @@ function saveCachedCountries(countries: Country[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), countries }))
-  } catch (e) {
-    // ignore storage errors
+  } catch {
+    // ignore quota errors
   }
 }
 
-function normalizeSignal(value: number | null | undefined) {
+// ── Signal normalisation ──────────────────────────────────────────────────────
+
+function normalizeSignal(value: number | null | undefined): number {
   if (value == null) return 0
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
-function normalizeSignals(signals: Partial<Record<keyof SignalScores, number | null>> | undefined) {
+function normalizeSignals(
+  signals: Partial<Record<keyof SignalScores, number | null>> | undefined,
+): SignalScores {
   return {
-    telecom: normalizeSignal(signals?.telecom),
+    telecom:     normalizeSignal(signals?.telecom),
     electricity: normalizeSignal(signals?.electricity),
-    building: normalizeSignal(signals?.building),
-    mobility: normalizeSignal(signals?.mobility),
-    internet: normalizeSignal(signals?.internet),
+    building:    normalizeSignal(signals?.building),
+    mobility:    normalizeSignal(signals?.mobility),
+    internet:    normalizeSignal(signals?.internet),
   }
 }
 
-function mergeUnAndBackend(
-  country: Country,
-  backend?: {
-    iso2: string
-    official: number | null
-    ospi: number | null
-    conf: Country['conf'] | null
-    signals?: Partial<Record<keyof SignalScores, number | null>>
-  },
-) {
-  if (!backend) {
-    return country
-  }
+// ── Fetch ─────────────────────────────────────────────────────────────────────
 
-  return {
-    ...country,
-    official: backend.official ?? country.official,
-    ospi: backend.ospi ?? country.ospi,
-    conf: backend.conf ?? country.conf,
-    signals: normalizeSignals({ ...country.signals, ...backend.signals }),
-  }
-}
+let cachedCountries: Country[] | null = null
+let pendingPromise:  Promise<Country[]> | null = null
 
 export async function fetchBackendCountries(): Promise<Country[]> {
-  if (cachedBackendCountries) return cachedBackendCountries
-  if (cachedBackendPromise) return cachedBackendPromise
+  if (cachedCountries) return cachedCountries
+  if (pendingPromise)  return pendingPromise
 
   const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/+$/, '')
   if (!baseUrl) {
-    throw new Error('NEXT_PUBLIC_BACKEND_URL must be set to fetch backend country signal data')
+    throw new Error('NEXT_PUBLIC_BACKEND_URL is not set')
   }
 
-  const url = `${baseUrl}/countries`
-
-  cachedBackendPromise = (async () => {
+  pendingPromise = (async () => {
     try {
-      const res = await fetch(url, { cache: 'no-store' })
-      if (!res.ok) {
-        throw new Error(`Failed to fetch backend countries (${res.status}) from ${url}`)
-      }
-      const payload = await res.json()
+      const res = await fetch(`${baseUrl}/countries/full`, { cache: 'no-store' })
+      if (!res.ok) throw new Error(`/countries/full returned ${res.status}`)
 
-        const backendMap = new Map<string, {
-          iso2: string
-          official: number | null
-          ospi: number | null
-          conf: Country['conf'] | null
-          signals?: Partial<Record<keyof SignalScores, number | null>>
-        }>()
+      const payload: any[] = await res.json()
 
-        for (const item of payload as Array<any>) {
-          backendMap.set(String(item.iso2).toUpperCase(), {
-            iso2: String(item.iso2).toUpperCase(),
-            official: item.official ?? null,
-            ospi: item.ospi ?? null,
-            conf: item.conf ?? null,
-            signals: item.signals,
-          })
-        }
+      const countries: Country[] = payload.map((item) => ({
+        name:         String(item.name ?? ''),
+        iso:          String(item.iso  ?? '').toUpperCase(),
+        lat:          Number(item.lat  ?? 0),
+        lng:          Number(item.lng  ?? 0),
+        region:       String(item.region ?? 'Unknown'),
+        official:     Number(item.official ?? 0),
+        ospi:         Number(item.ospi     ?? item.official ?? 0),
+        conf:         (item.conf ?? 'low') as Country['conf'],
+        signals:      normalizeSignals(item.signals),
+        history:      Array.isArray(item.history)
+                        ? item.history.map((h: any) => ({ y: Number(h.y), v: Number(h.v) }))
+                        : [],
+        urbanPct:     Number(item.urbanPct     ?? 0),
+        densityKm2:   Number(item.densityKm2   ?? 0),
+        gdpPerCapita: Number(item.gdpPerCapita ?? 0),
+        growthRate:   Number(item.growthRate   ?? 0),
+        regions:      Array.isArray(item.regions) ? item.regions : [],
+      }))
 
-      const merged = initialUnCountries.map((country) =>
-        mergeUnAndBackend(country, backendMap.get(country.iso.toUpperCase())),
-      )
-      cachedBackendCountries = merged
-      try {
-        saveCachedCountries(merged)
-      } catch (e) {
-        // ignore
-      }
-      return merged
-    } catch (error) {
-      cachedBackendPromise = null
-      throw error instanceof Error ? error : new Error(String(error))
+      cachedCountries = countries
+      saveCachedCountries(countries)
+      return countries
+    } catch (err) {
+      pendingPromise = null
+      throw err instanceof Error ? err : new Error(String(err))
     }
   })()
 
-  return cachedBackendPromise
+  return pendingPromise
 }
+
+// ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useCountries(): Country[] {
   const { setSignalsAvailable } = useDataSource()
-  // Start with the UN baseline on first render to match server-side HTML.
-  // Apply any localStorage cache in a client-only effect to avoid hydration mismatches.
-  const [countries, setCountries] = useState<Country[]>(() => initialUnCountries)
+  const [countries, setCountries] = useState<Country[]>([])
 
   useEffect(() => {
     let cancelled = false
-    // On the client, prefer a cached copy if available so reloads are fast.
+
+    // Serve cache instantly on mount so the UI isn't blank on reload
     const cached = loadCachedCountries()
     if (cached) {
       setCountries(cached)
-      const hasSignals = cached.some((country) =>
-        Object.values(country.signals).some((value) => value > 0),
-      )
-      setSignalsAvailable(hasSignals)
-    } else {
-      setCountries(initialUnCountries)
-      setSignalsAvailable(false)
+      setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => v > 0)))
     }
 
     fetchBackendCountries()
-      .then((backendCountries) => {
+      .then((fresh) => {
         if (cancelled) return
-        setCountries(backendCountries)
-        saveCachedCountries(backendCountries)
-        const hasSignals = backendCountries.some((country) =>
-          Object.values(country.signals).some((value) => value > 0),
-        )
-        setSignalsAvailable(hasSignals)
+        setCountries(fresh)
+        saveCachedCountries(fresh)
+        setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => v > 0)))
       })
       .catch(() => {
         if (cancelled) return
-        setCountries(initialUnCountries)
+        // Keep whatever is already displayed (cache or empty)
         setSignalsAvailable(false)
       })
 
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
   }, [setSignalsAvailable])
 
   return useMemo(() => countries, [countries])
