@@ -6,6 +6,7 @@ import { DataSourceProvider } from '@/lib/dataSource'
 import { useCountries, fetchBackendCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { sortByDivergence } from '@/lib/estimator'
+import { fmt, fmtPct } from '@/lib/fmt'
 import type { Country } from '@/lib/types'
 import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
@@ -21,7 +22,6 @@ function OSPIInner() {
   const countries = useCountries()
 
   useEffect(() => {
-    // Prefetch backend data in background when a backend URL is configured
     if (process.env.NEXT_PUBLIC_BACKEND_URL) {
       fetchBackendCountries().catch(() => {})
     }
@@ -34,11 +34,10 @@ function OSPIInner() {
     [sorted, query],
   )
 
-  // reset selection when data source changes
-    useEffect(() => {
-      setSelected(null)
-      setMapResetKey(k => k + 1)
-    }, [])
+  useEffect(() => {
+    setSelected(null)
+    setMapResetKey(k => k + 1)
+  }, [])
 
   const handleOverviewReset = () => {
     setSelected(null)
@@ -59,12 +58,9 @@ function OSPIInner() {
         </span>
 
         <div className="ml-auto flex items-center gap-4">
-
           <span className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-              {countries.length} countries · 5 signals · UN WPP
+            {countries.length} countries · 5 signals · UN WPP
           </span>
-
-            {/* <DataSourceToggle /> */}
 
           {selected && (
             <button
@@ -104,12 +100,10 @@ function OSPIInner() {
             className="shrink-0 flex flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
             style={{ width: 320 }}
           >
-
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
               <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
                 World map
               </p>
-
               {selected && (
                 <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">
                   {selected.name}
@@ -145,7 +139,7 @@ function OSPIInner() {
 }
 
 /* ──────────────────────────────── */
-/* QUICK STATS */
+/* QUICK STATS                      */
 /* ──────────────────────────────── */
 
 function QuickStats({ country: c }: { country: Country }) {
@@ -158,12 +152,12 @@ function QuickStats({ country: c }: { country: Country }) {
       </p>
 
       {[
-        { label: 'Official', value: `${c.official}M` },
-        { label: 'OSPI est.', value: `${c.ospi}M` },
-        { label: 'Urban', value: c.urbanPct ? `${c.urbanPct}%` : '—' },
-        { label: 'Density', value: c.densityKm2 ? `${c.densityKm2}/km²` : '—' },
-        { label: 'Growth', value: `${c.growthRate > 0 ? '+' : ''}${c.growthRate}%/yr` },
-        { label: 'GDP/cap', value: c.gdpPerCapita ? `$${c.gdpPerCapita.toLocaleString()}` : '—' },
+        { label: 'Official', value: fmt(c.official) },
+        { label: 'OSPI est.', value: fmt(c.ospi) },
+        { label: 'Urban',    value: c.urbanPct   ? `${c.urbanPct}%`      : '—' },
+        { label: 'Density',  value: c.densityKm2 ? `${c.densityKm2}/km²` : '—' },
+        { label: 'Growth',   value: `${fmtPct(c.growthRate, true)}/yr` },
+        { label: 'GDP/cap',  value: c.gdpPerCapita ? `$${fmt(c.gdpPerCapita)}` : '—' },
       ].map(r => (
         <div key={r.label} className="flex justify-between">
           <span className="text-[10px] text-zinc-400">{r.label}</span>
@@ -203,7 +197,7 @@ function QuickStats({ country: c }: { country: Country }) {
 }
 
 /* ──────────────────────────────── */
-/* ANOMALIES */
+/* ANOMALIES                        */
 /* ──────────────────────────────── */
 
 function AnomalyList({ countries, onSelect }: {
@@ -217,8 +211,7 @@ function AnomalyList({ countries, onSelect }: {
       </p>
 
       {sortByDivergence(countries).slice(0, 15).map(c => {
-        const d = Math.round((c.ospi - c.official) / c.official * 100)
-        const isPositive = d >= 0
+        const d = (c.ospi - c.official) / c.official * 100
 
         return (
           <button
@@ -229,9 +222,9 @@ function AnomalyList({ countries, onSelect }: {
             <span className="text-[10px] truncate">{c.name}</span>
             <span
               className="text-[10px] font-mono font-semibold"
-              style={{ color: isPositive ? '#1D9E75' : '#E24B4A' }}
+              style={{ color: d >= 0 ? '#1D9E75' : '#E24B4A' }}
             >
-              {isPositive ? '+' : ''}{d}%
+              {fmtPct(d, true)}
             </span>
           </button>
         )
@@ -241,7 +234,7 @@ function AnomalyList({ countries, onSelect }: {
 }
 
 /* ──────────────────────────────── */
-/* ROOT */
+/* ROOT                             */
 /* ──────────────────────────────── */
 
 export default function OSPIPage() {
