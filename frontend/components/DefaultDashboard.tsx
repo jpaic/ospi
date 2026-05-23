@@ -12,13 +12,13 @@ function calcDelta(c: { ospi: number; official: number }): number {
 }
 
 export default function DefaultDashboard() {
-  const countries  = useCountries()
+  const countries = useCountries()
   const { noSignals } = useDataSource()
 
-  const barRef     = useRef<HTMLCanvasElement>(null)
+  const barRef = useRef<HTMLCanvasElement>(null)
   const scatterRef = useRef<HTMLCanvasElement>(null)
-  const barInst    = useRef<ChartType | null>(null)
-  const scatInst   = useRef<ChartType | null>(null)
+  const barInst = useRef<ChartType | null>(null)
+  const scatInst = useRef<ChartType | null>(null)
 
   const stats = globalStats(countries)
 
@@ -26,8 +26,17 @@ export default function DefaultDashboard() {
     .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
     .slice(0, 8)
 
-  const declining  = countries.filter(c => c.growthRate < 0)
-  const fastest    = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
+  const declining = [...countries]
+    .filter(c => c.growthRate < 0)
+    .sort((a, b) => {
+      // score = growthRate penalized by small population
+      // official is in millions — log scale so China doesn't totally dominate
+      const score = (c: { growthRate: number; official: number }) =>
+        c.growthRate * Math.log10(Math.max(c.official, 0.1))
+      return score(a) - score(b)
+    })
+    .slice(0, 8)
+  const fastest = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
   const alphabetical = [...countries].sort((a, b) => a.name.localeCompare(b.name))
 
   useEffect(() => {
@@ -45,14 +54,14 @@ export default function DefaultDashboard() {
       scatInst.current?.destroy()
 
       const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      const tick   = isDark ? '#52525b' : '#a1a1aa'
-      const grid   = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
+      const tick = isDark ? '#52525b' : '#a1a1aa'
+      const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
       const tooltipBase = {
         backgroundColor: isDark ? '#18181b' : '#fff',
-        borderColor:     isDark ? '#27272a' : '#e4e4e7',
+        borderColor: isDark ? '#27272a' : '#e4e4e7',
         borderWidth: 1,
         titleColor: isDark ? '#a1a1aa' : '#71717a',
-        bodyColor:  isDark ? '#f4f4f5' : '#18181b',
+        bodyColor: isDark ? '#f4f4f5' : '#18181b',
         padding: 8,
       }
 
@@ -165,35 +174,35 @@ export default function DefaultDashboard() {
     {
       label: 'Official world pop.',
       value: fmtB(stats.totalOfficial / 1000),
-      sub:   'Government census sum',
+      sub: 'Government census sum',
     },
     {
       label: 'OSPI world estimate',
       value: fmtB(stats.totalOspi / 1000),
-      sub:   'Signal-weighted model',
+      sub: 'Signal-weighted model',
     },
     {
       label: 'Global gap',
       value: fmtGap(stats.totalOspi - stats.totalOfficial),
-      sub:   'Absolute divergence',
+      sub: 'Absolute divergence',
       color: '#EF9F27',
     },
     {
       label: 'Avg divergence',
       value: `±${stats.avgDivergence.toFixed(2)}%`,
-      sub:   'Across all countries',
+      sub: 'Across all countries',
       color: '#EF9F27',
     },
     {
       label: 'High confidence',
       value: `${stats.highConf}`,
-      sub:   `of ${countries.length} countries`,
+      sub: `of ${countries.length} countries`,
       color: '#1D9E75',
     },
     {
       label: 'Low confidence',
       value: `${stats.lowConf}`,
-      sub:   'Disputed or sparse',
+      sub: 'Disputed or sparse',
       color: '#E24B4A',
     },
   ]
@@ -219,8 +228,8 @@ export default function DefaultDashboard() {
           {noSignals && (
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20">
               <svg className="text-amber-500 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                <line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" />
               </svg>
               <p className="text-[10px] text-amber-700 dark:text-amber-400">
                 UN WPP source active — signal data not yet available. OSPI estimates mirror official figures until model runs.
@@ -273,10 +282,10 @@ export default function DefaultDashboard() {
                 <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
                   {(() => {
                     const highSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
-                    const lowSigCountries  = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
-                    const avgDivHighSig    = (highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1)).toFixed(2)
-                    const avgDivLowSig     = (lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1)).toFixed(2)
-                    const outliers         = countries.filter(c => {
+                    const lowSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
+                    const avgDivHighSig = (highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1)).toFixed(2)
+                    const avgDivLowSig = (lowSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length || 1)).toFixed(2)
+                    const outliers = countries.filter(c => {
                       const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
                       const div = Math.abs(calcDelta(c))
                       return (sig >= 75 && div > 5) || (sig < 50 && div < 3)
@@ -355,8 +364,8 @@ export default function DefaultDashboard() {
               <div className="flex gap-3">
                 {[
                   { label: 'High', col: '#1D9E75' },
-                  { label: 'Med',  col: '#EF9F27' },
-                  { label: 'Low',  col: '#E24B4A' },
+                  { label: 'Med', col: '#EF9F27' },
+                  { label: 'Low', col: '#E24B4A' },
                 ].map(b => (
                   <span key={b.label} className="flex items-center gap-1 text-[9px]" style={{ color: b.col }}>
                     <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: b.col }} />
@@ -375,7 +384,7 @@ export default function DefaultDashboard() {
               </thead>
               <tbody>
                 {alphabetical.map((c, i) => {
-                  const d   = calcDelta(c)
+                  const d = calcDelta(c)
                   const isP = d >= 0
                   const col = noSignals
                     ? '#a1a1aa'

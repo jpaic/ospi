@@ -10,11 +10,11 @@ import type { Chart as ChartType } from 'chart.js'
 interface Props { country: Country }
 
 const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
-  { key: 'telecom',     label: 'Telecom'     },
+  { key: 'telecom', label: 'Telecom' },
   { key: 'electricity', label: 'Electricity' },
-  { key: 'building',    label: 'Building'    },
-  { key: 'mobility',    label: 'Mobility'    },
-  { key: 'internet',    label: 'Internet'    },
+  { key: 'building', label: 'Building' },
+  { key: 'mobility', label: 'Mobility' },
+  { key: 'internet', label: 'Internet' },
 ]
 
 function signalColor(v: number): string {
@@ -31,20 +31,20 @@ function deltaStr(c: Country): string {
 export default function CountryDetail({ country: c }: Props) {
   const { noSignals } = useDataSource()
 
-  const trendRef  = useRef<HTMLCanvasElement>(null)
-  const radarRef  = useRef<HTMLCanvasElement>(null)
-  const barRef    = useRef<HTMLCanvasElement>(null)
+  const trendRef = useRef<HTMLCanvasElement>(null)
+  const radarRef = useRef<HTMLCanvasElement>(null)
+  const barRef = useRef<HTMLCanvasElement>(null)
   const trendInst = useRef<ChartType | null>(null)
   const radarInst = useRef<ChartType | null>(null)
-  const barInst   = useRef<ChartType | null>(null)
+  const barInst = useRef<ChartType | null>(null)
 
-  const delta  = deltaStr(c)
-  const isPos  = c.ospi >= c.official
-  const badge  = noSignals ? '#a1a1aa' : confColor(c.conf)
+  const delta = deltaStr(c)
+  const isPos = c.ospi >= c.official
+  const badge = noSignals ? '#a1a1aa' : confColor(c.conf)
   const avgSig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
 
   useEffect(() => {
-    if (!trendRef.current || !radarRef.current || !barRef.current) return
+    if (!trendRef.current || !radarRef.current) return
 
     const init = async () => {
       const {
@@ -63,42 +63,78 @@ export default function CountryDetail({ country: c }: Props) {
       barInst.current?.destroy()
 
       const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches
-      const tick   = isDark ? '#52525b' : '#a1a1aa'
-      const grid   = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
+      const tick = isDark ? '#52525b' : '#a1a1aa'
+      const grid = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)'
       const tooltipOpts = {
         backgroundColor: isDark ? '#18181b' : '#fff',
-        borderColor:     isDark ? '#27272a' : '#e4e4e7',
+        borderColor: isDark ? '#27272a' : '#e4e4e7',
         borderWidth: 1,
         titleColor: isDark ? '#a1a1aa' : '#71717a',
-        bodyColor:  isDark ? '#f4f4f5' : '#18181b',
+        bodyColor: isDark ? '#f4f4f5' : '#18181b',
         padding: 8,
       }
 
       // ── Trend chart ──
+      // history: [{y: year, v: population_millions}] from DB, one row per year
+      // OSPI estimate is plotted as a single point appended after the last history year
+      const historyYears = c.history.map(h => String(h.y))
+      const historyVals = c.history.map(h => parseFloat(h.v.toFixed(4)))
+
+      const lastHistoryYear = c.history.length > 0 ? c.history[c.history.length - 1].y : null
+      const ospiYear = lastHistoryYear ? String(lastHistoryYear) : 'OSPI'
+      const ospiVal = parseFloat(c.ospi.toFixed(4))
+
+      // Labels: all history years + one extra point for the OSPI estimate
+      const trendLabels = [...historyYears]
+
+      const histDataset = [...historyVals]
+
+      // OSPI point sits only at the last year index, null everywhere else
+      const ospiDataset = c.history.map((_h, i) =>
+        i === c.history.length - 1 ? ospiVal : (null as number | null)
+      )
+
       trendInst.current = new Chart(trendRef.current!, {
         type: 'line',
         data: {
-          labels: c.history.map(h => String(h.y)),
+          labels: trendLabels,
           datasets: [
             {
-              label: 'OSPI',
-              data:  c.history.map(h => parseFloat(h.v.toFixed(2))),
-              borderColor: '#1D9E75',
-              backgroundColor: isDark ? 'rgba(29,158,117,0.1)' : 'rgba(29,158,117,0.07)',
+              // Historical population from populations DB table
+              label: 'Population',
+              data: histDataset,
+              borderColor: isDark ? '#71717a' : '#a1a1aa',
+              backgroundColor: isDark ? 'rgba(113,113,122,0.08)' : 'rgba(161,161,170,0.08)',
               borderWidth: 2,
-              pointRadius: 3,
-              pointBackgroundColor: '#1D9E75',
+              pointRadius: (ctx) => ctx.dataIndex === histDataset.length - 1 ? 4 : 3,
+              pointBackgroundColor: isDark ? '#71717a' : '#a1a1aa',
               fill: true,
               tension: 0.4,
+              spanGaps: false,
             },
             {
-              label: 'Official',
-              data:  c.history.map(() => parseFloat(c.official.toFixed(2))),
-              borderColor: isDark ? '#3f3f46' : '#d4d4d8',
+              // Dashed connector line from last history point to OSPI estimate
+              label: '',
+              data: histDataset.map((v, i) =>
+                i === histDataset.length - 1 ? ospiVal : null
+              ),
+              borderColor: noSignals
+                ? (isDark ? '#3f3f46' : '#d4d4d8')
+                : isPos ? '#1D9E75' : '#E24B4A',
+              backgroundColor: 'transparent',
               borderWidth: 1.5,
-              borderDash: [5, 4],
-              pointRadius: 0,
+              borderDash: [4, 4],
+              pointRadius: (ctx) => ctx.dataIndex === histDataset.length - 1 ? 5 : 0,
+              pointBackgroundColor: noSignals
+                ? (isDark ? '#3f3f46' : '#d4d4d8')
+                : isPos ? '#1D9E75' : '#E24B4A',
+              pointBorderColor: noSignals
+                ? (isDark ? '#3f3f46' : '#d4d4d8')
+                : isPos ? '#1D9E75' : '#E24B4A',
+              pointStyle: 'circle',
               fill: false,
+              tension: 0,
+              spanGaps: false,
             },
           ],
         },
@@ -109,17 +145,20 @@ export default function CountryDetail({ country: c }: Props) {
             legend: { display: false },
             tooltip: {
               ...tooltipOpts,
-              callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y as number)}` },
+              callbacks: {
+                label: ctx => {
+                  if (ctx.parsed.y === null) return ''
+                  if (ctx.datasetIndex === 1 && ctx.dataIndex !== histDataset.length - 1) return ''
+                  const label = ctx.datasetIndex === 0 ? 'Population' : 'OSPI estimate'
+                  return ` ${label}: ${fmt(ctx.parsed.y as number)}`
+                },
+              },
             },
           },
           scales: {
             x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
             y: {
-              ticks: {
-                color: tick,
-                font: { size: 9 },
-                callback: v => fmt(v as number),
-              },
+              ticks: { color: tick, font: { size: 9 }, callback: v => fmt(v as number) },
               grid: { color: grid },
               border: { display: false },
             },
@@ -150,7 +189,7 @@ export default function CountryDetail({ country: c }: Props) {
             r: {
               min: 0, max: 100,
               ticks: { color: tick, font: { size: 8 }, stepSize: 25, backdropColor: 'transparent' },
-              grid:  { color: grid },
+              grid: { color: grid },
               pointLabels: { color: tick, font: { size: 9 } },
               angleLines: { color: grid },
             },
@@ -159,22 +198,22 @@ export default function CountryDetail({ country: c }: Props) {
       })
 
       // ── Region bar chart ──
-      if (c.regions.length > 0) {
-        barInst.current = new Chart(barRef.current!, {
+      if (c.regions.length > 0 && barRef.current) {
+        barInst.current = new Chart(barRef.current, {
           type: 'bar',
           data: {
             labels: c.regions.map(r => r.name),
             datasets: [
               {
                 label: 'Official',
-                data:  c.regions.map(r => parseFloat(r.pop.toFixed(2))),
+                data: c.regions.map(r => parseFloat(r.pop.toFixed(2))),
                 backgroundColor: isDark ? 'rgba(113,113,122,0.4)' : 'rgba(161,161,170,0.4)',
                 borderRadius: 3,
                 barPercentage: 0.6,
               },
               {
                 label: 'OSPI',
-                data:  c.regions.map(r => parseFloat(r.ospi.toFixed(2))),
+                data: c.regions.map(r => parseFloat(r.ospi.toFixed(2))),
                 backgroundColor: '#1D9E75',
                 borderRadius: 3,
                 barPercentage: 0.6,
@@ -194,11 +233,7 @@ export default function CountryDetail({ country: c }: Props) {
             scales: {
               x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
               y: {
-                ticks: {
-                  color: tick,
-                  font: { size: 9 },
-                  callback: v => fmt(v as number),
-                },
+                ticks: { color: tick, font: { size: 9 }, callback: v => fmt(v as number) },
                 grid: { color: grid },
                 border: { display: false },
               },
@@ -234,8 +269,8 @@ export default function CountryDetail({ country: c }: Props) {
               </div>
               <p className="text-xs text-zinc-400 mt-0.5">
                 {c.region}
-                {c.densityKm2  ? ` · ${c.densityKm2.toLocaleString('en-US')} people/km²` : ''}
-                {c.urbanPct    ? ` · ${c.urbanPct.toFixed(1)}% urban`                      : ''}
+                {c.densityKm2 ? ` · ${c.densityKm2.toLocaleString('en-US')} people/km²` : ''}
+                {c.urbanPct ? ` · ${c.urbanPct.toFixed(1)}% urban` : ''}
               </p>
             </div>
             <div
@@ -250,36 +285,11 @@ export default function CountryDetail({ country: c }: Props) {
           {/* ── KPI strip ── */}
           <div className="grid grid-cols-5 gap-2">
             {[
-              {
-                label: 'Official pop.',
-                value: fmt(c.official),
-                sub:   'Census reported',
-                color: '',
-              },
-              {
-                label: 'OSPI estimate',
-                value: fmt(c.ospi),
-                sub:   'Signal-weighted',
-                color: '#1D9E75',
-              },
-              {
-                label: 'Divergence',
-                value: delta,
-                sub:   `${fmtGap(c.ospi - c.official)} gap`,
-                color: isPos ? '#1D9E75' : '#E24B4A',
-              },
-              {
-                label: 'GDP / capita',
-                value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—',
-                sub:   'USD nominal',
-                color: '',
-              },
-              {
-                label: 'Annual growth',
-                value: fmtPct(c.growthRate, true),
-                sub:   'Rate p.a.',
-                color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A',
-              },
+              { label: 'Official pop.', value: fmt(c.official), sub: 'Census reported', color: '' },
+              { label: 'OSPI estimate', value: fmt(c.ospi), sub: 'Signal-weighted', color: '#1D9E75' },
+              { label: 'Divergence', value: delta, sub: `${fmtGap(c.ospi - c.official)} gap`, color: isPos ? '#1D9E75' : '#E24B4A' },
+              { label: 'GDP / capita', value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—', sub: 'USD nominal', color: '' },
+              { label: 'Annual growth', value: fmtPct(c.growthRate, true), sub: 'Rate p.a.', color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' },
             ].map(k => (
               <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
@@ -298,26 +308,28 @@ export default function CountryDetail({ country: c }: Props) {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Population trend</p>
                 <div className="flex gap-3">
-                  {[{ col: '#1D9E75', label: 'OSPI' }, { col: '#a1a1aa', label: 'Official', dashed: true }].map(l => (
-                    <span key={l.label} className="flex items-center gap-1 text-[9px] text-zinc-400">
-                      <span
-                        className="inline-block w-4 h-px border-t"
-                        style={l.dashed
-                          ? { borderColor: l.col, borderStyle: 'dashed' }
-                          : { background: l.col, borderTopWidth: '2px' }
-                        }
-                      />
-                      {l.label}
-                    </span>
-                  ))}
+                  {[
+                    { col: '#a1a1aa', label: 'UN data', dashed: false },
+                    { col: noSignals ? '#a1a1aa' : isPos ? '#1D9E75' : '#E24B4A', label: 'OSPI estimate', dashed: true },].map(l => (
+                      <span key={l.label} className="flex items-center gap-1 text-[9px] text-zinc-400">
+                        <span
+                          className="inline-block w-4 h-px border-t"
+                          style={l.dashed
+                            ? { borderColor: l.col, borderStyle: 'dashed' }
+                            : { background: l.col, borderTopWidth: '2px' }
+                          }
+                        />
+                        {l.label}
+                      </span>
+                    ))}
                 </div>
               </div>
-              <div style={{ height: 100 }}>
+              <div style={{ height: 110 }}>
                 <canvas ref={trendRef} />
               </div>
             </div>
 
-            {/* Radar — grayed out when no signals */}
+            {/* Radar */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal radar</p>
@@ -333,7 +345,7 @@ export default function CountryDetail({ country: c }: Props) {
 
           {/* ── Charts row 2: Signal bars + Region bar ── */}
           <div className="grid grid-cols-3 gap-3">
-            {/* Signal bars — grayed out when no signals */}
+            {/* Signal bars */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal scores</p>
@@ -343,7 +355,7 @@ export default function CountryDetail({ country: c }: Props) {
               </div>
               <div className={`space-y-2 ${noSignals ? 'opacity-40 pointer-events-none' : ''}`}>
                 {SIGNALS.map(({ key, label }) => {
-                  const v   = c.signals[key]
+                  const v = c.signals[key]
                   const col = noSignals ? '#a1a1aa' : signalColor(v)
                   return (
                     <div key={key}>
@@ -403,8 +415,8 @@ export default function CountryDetail({ country: c }: Props) {
                 <tbody>
                   {c.regions.map((r, i) => {
                     const rDeltaPct = ((r.ospi - r.pop) / r.pop * 100).toFixed(2)
-                    const rPos      = r.ospi >= r.pop
-                    const rCol      = noSignals ? '#a1a1aa' : confColor(r.conf)
+                    const rPos = r.ospi >= r.pop
+                    const rCol = noSignals ? '#a1a1aa' : confColor(r.conf)
                     return (
                       <tr
                         key={r.name}
@@ -435,13 +447,14 @@ export default function CountryDetail({ country: c }: Props) {
           {/* ── Methodology note ── */}
           <div className="rounded-lg border border-zinc-100 dark:border-zinc-800 px-3 py-2 flex gap-2 items-start">
             <svg className="text-zinc-300 dark:text-zinc-600 mt-0.5 shrink-0" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>
+              <circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" />
             </svg>
             <p className="text-[10px] text-zinc-400 leading-relaxed">
               OSPI estimates are probabilistic models derived from weighted signal indicators.
+              Historical population data sourced from UN WPP (Medium variant, both sexes).
               Confidence reflects data source reliability. Estimates should not be treated as official counts.
-              Last model run: <span className="font-mono">2023-Q4</span>.
-              {noSignals && ' · Signal data not yet available for this source — OSPI mirrors official figures until your model runs.'}
+              Last model run: <span className="font-mono">2024-Q2</span>.
+              {noSignals && ' · Signal data not yet available — OSPI mirrors official figures until your model runs.'}
             </p>
           </div>
 
