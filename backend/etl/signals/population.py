@@ -3,6 +3,7 @@ import time
 import httpx
 from db.connection import get_conn
 from dotenv import load_dotenv
+from etl.utils.countries import get_valid_iso2_codes
 from psycopg2.extras import execute_values
 
 load_dotenv()
@@ -14,48 +15,6 @@ START_YEAR = 2018
 END_YEAR = 2024
 
 HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
-
-SOVEREIGN_COUNTRIES = {
-    "Afghanistan", "Albania", "Algeria", "Andorra", "Angola",
-    "Antigua and Barbuda", "Argentina", "Armenia", "Australia", "Austria",
-    "Azerbaijan", "Bahamas", "Bahrain", "Bangladesh", "Barbados",
-    "Belarus", "Belgium", "Belize", "Benin", "Bhutan",
-    "Bolivia (Plurinational State of)", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei Darussalam",
-    "Bulgaria", "Burkina Faso", "Burundi", "Cabo Verde", "Cambodia",
-    "Cameroon", "Canada", "Central African Republic", "Chad", "Chile",
-    "China", "Colombia", "Comoros", "Congo", "Costa Rica",
-    "Côte d'Ivoire", "Croatia", "Cuba", "Cyprus", "Czechia",
-    "Dem. People's Rep. of Korea", "Democratic Republic of the Congo", "Denmark", "Djibouti", "Dominica",
-    "Dominican Republic", "Ecuador", "Egypt", "El Salvador", "Equatorial Guinea",
-    "Eritrea", "Estonia", "Eswatini", "Ethiopia", "Fiji",
-    "Finland", "France", "Gabon", "Gambia", "Georgia",
-    "Germany", "Ghana", "Greece", "Grenada", "Guatemala",
-    "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Honduras",
-    "Hungary", "Iceland", "India", "Indonesia", "Iran (Islamic Republic of)",
-    "Iraq", "Ireland", "Israel", "Italy", "Jamaica",
-    "Japan", "Jordan", "Kazakhstan", "Kenya", "Kiribati",
-    "Kuwait", "Kyrgyzstan", "Kosovo (under UNSC res. 1244)", "Lao People's Democratic Republic", "Latvia", "Lebanon",
-    "Lesotho", "Liberia", "Libya", "Liechtenstein", "Lithuania",
-    "Luxembourg", "Madagascar", "Malawi", "Malaysia", "Maldives",
-    "Mali", "Malta", "Marshall Islands", "Mauritania", "Mauritius",
-    "Mexico", "Micronesia", "Monaco", "Mongolia", "Montenegro",
-    "Morocco", "Mozambique", "Myanmar", "Namibia", "Nauru",
-    "Nepal", "Netherlands", "New Zealand", "Nicaragua", "Niger",
-    "Nigeria", "North Macedonia", "Norway", "Oman", "Pakistan",
-    "Palau", "Panama", "Papua New Guinea", "Paraguay", "Peru",
-    "Philippines", "Poland", "Portugal", "Qatar", "Republic of Korea",
-    "Republic of Moldova", "Romania", "Russian Federation", "Rwanda", "Saint Kitts and Nevis",
-    "Saint Lucia", "Saint Vincent and the Grenadines", "Samoa", "San Marino", "Sao Tome and Principe",
-    "Saudi Arabia", "Senegal", "Serbia", "Seychelles", "Sierra Leone",
-    "Singapore", "Slovakia", "Slovenia", "Solomon Islands", "Somalia",
-    "South Africa", "South Sudan", "Spain", "Sri Lanka", "State of Palestine",
-    "Sudan", "Suriname", "Sweden", "Switzerland", "Syrian Arab Republic",
-    "China, Taiwan Province of China", "Tajikistan", "Thailand", "Timor-Leste", "Togo", "Tonga",
-    "Trinidad and Tobago", "Tunisia", "Türkiye", "Turkmenistan", "Tuvalu",
-    "Uganda", "Ukraine", "United Arab Emirates", "United Kingdom", "United Republic of Tanzania",
-    "United States of America", "Uruguay", "Uzbekistan", "Vanuatu", "Venezuela (Bolivarian Republic of)",
-    "Viet Nam", "Yemen", "Zambia", "Zimbabwe",
-}
 
 
 def fetch_all_locations() -> list[dict]:
@@ -88,13 +47,6 @@ def fetch_all_locations() -> list[dict]:
 
 
 def fetch_population_for_location(location_id: int, location_name: str, max_retries: int = 3) -> list[dict]:
-    """Fetch population data for a specific location with retry logic.
-
-    Mirrors the TS script logic exactly:
-      1. Sort rows ascending by year
-      2. Overwrite year_map[year] for each row (last value per year wins)
-      3. Divide by 1_000_000 to convert to millions
-    """
     url = (
         f"{BASE}/data/indicators/{INDICATOR_TOTAL_POP}"
         f"/locations/{location_id}/start/{START_YEAR}/end/{END_YEAR}"
@@ -107,16 +59,13 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
             r.raise_for_status()
             data = r.json()
 
-            # Extract data array - handles both response formats
             rows = data.get("data", data if isinstance(data, list) else [])
 
             if not rows:
                 return []
 
-            # Sort by year ascending (mirrors TS: rows.sort((a, b) => Number(a.timeLabel) - Number(b.timeLabel)))
             rows.sort(key=lambda row: int(row["timeLabel"]))
 
-            # Overwrite per year so last value wins (mirrors TS: history[history.length - 1] after sort)
             year_map = {}
             for row in rows:
                 if row.get("value") is not None:
@@ -143,86 +92,107 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
 
 def fetch_population_signals() -> dict[str, list[dict]]:
     """Returns {iso2: [{year, population}, ...]}"""
-    print("Fetching all locations from UN Data Portal...\n")
+    valid_codes = get_valid_iso2_codes()
+    print(f"Valid country codes loaded: {len(valid_codes)}")
+
+    print("\nFetching all locations from UN Data Portal...\n")
     all_locations = fetch_all_locations()
+    print(f"\nTotal locations from UN API: {len(all_locations)}")
 
+    # Filter locations to valid countries
+    skipped_no_iso2 = 0
+    skipped_not_valid = []
     countries = []
+
     for loc in all_locations:
-        # Must have Iso2 code (basic validation)
-        if not loc.get("Iso2") or len(loc["Iso2"]) != 2:
+        iso2 = loc.get("Iso2", "")
+        if not iso2 or len(iso2) != 2:
+            skipped_no_iso2 += 1
             continue
+        if iso2 not in valid_codes:
+            skipped_not_valid.append(f"{iso2} ({loc.get('Name', '?')})")
+            continue
+        countries.append(loc)
 
-        # Check if it's a sovereign country by name
-        if loc["Name"] in SOVEREIGN_COUNTRIES:
-            countries.append(loc)
-
-    print(f"\n{len(countries)} sovereign countries identified out of {len(all_locations)} total locations\n")
+    print(f"\n--- Location filter breakdown ---")
+    print(f"Matched valid countries:  {len(countries)}")
+    print(f"Skipped (no ISO2):        {skipped_no_iso2}")
+    print(f"Skipped (not valid):      {len(skipped_not_valid)}")
+    print(f"\nFiltered out locations (aggregates/regions):")
+    for s in sorted(skipped_not_valid):
+        print(f"  {s}")
 
     if not countries:
         print("No countries found!")
         return {}
 
-    print("Sample countries:")
-    for country in countries[:10]:
-        print(f"  - {country['Name']} ({country['Iso2']})")
-    print("")
-
     print("Fetching population data for all countries...\n")
     results = {}
     success_count = 0
     no_data_count = 0
+    no_data_countries = []
     fail_count = 0
+    fail_countries = []
 
     for i, country in enumerate(countries):
         iso2 = country["Iso2"]
         name = country["Name"]
 
-        # Show progress every 10 countries
         if i % 10 == 0 and i > 0:
-            print(f"  Progress: {i}/{len(countries)} countries processed ({success_count} successful, {no_data_count} no data, {fail_count} failed)")
+            print(f"  Progress: {i}/{len(countries)} — {success_count} successful, {no_data_count} no data, {fail_count} failed")
 
         try:
             rows = fetch_population_for_location(country["Id"], name)
 
             if not rows:
                 no_data_count += 1
+                no_data_countries.append(f"{iso2} ({name})")
                 continue
 
-            # Get latest year for validation
             latest = rows[-1]
 
-            # Skip if population is 0 (likely no data)
             if latest["population"] == 0:
                 no_data_count += 1
+                no_data_countries.append(f"{iso2} ({name}) — zero population")
                 continue
 
             results[iso2] = rows
             success_count += 1
 
-            # Log first 20 successes
             if success_count <= 20:
-                print(f"{name} — {latest['population']:.2f}M")
+                print(f"  {name} ({iso2}) — {latest['population']:.2f}M ({latest['year']})")
 
-            # Add delay to be nice to the API
             time.sleep(0.2)
 
         except Exception as e:
             fail_count += 1
-            if fail_count <= 10:
-                print(f"{name}: {str(e)}")
+            fail_countries.append(f"{iso2} ({name}): {str(e)}")
 
-    print(f"\n  Done!")
-    print(f"  • Successfully fetched: {success_count} countries")
-    print(f"  • No data available: {no_data_count} countries")
-    print(f"  • Failed: {fail_count} countries")
-    print(f"  • Total countries in dataset: {len(results)}")
+    print(f"\n--- Population fetch breakdown ---")
+    print(f"Successfully fetched: {success_count}")
+    print(f"No data available:    {no_data_count}")
+    print(f"Failed:               {fail_count}")
+    print(f"Total in dataset:     {len(results)}")
+
+    if no_data_countries:
+        print(f"\nCountries with no data ({len(no_data_countries)}):")
+        for c in no_data_countries:
+            print(f"  {c}")
+
+    if fail_countries:
+        print(f"\nFailed countries ({len(fail_countries)}):")
+        for c in fail_countries:
+            print(f"  {c}")
+
+    missing = valid_codes - set(results.keys())
+    print(f"\nValid countries with NO population data ({len(missing)}):")
+    for code in sorted(missing):
+        print(f"  {code}")
 
     return results
 
 
 def store_population_signals(signals: dict[str, list[dict]]):
-    """Store population data in database without duplicates"""
-    # Use a dictionary to ensure unique (iso2, year) pairs
     unique_rows = {}
 
     for iso2, data_rows in signals.items():
@@ -231,16 +201,14 @@ def store_population_signals(signals: dict[str, list[dict]]):
             if key not in unique_rows:
                 unique_rows[key] = row["population"]
 
-    # Convert to list of tuples for insertion
     rows = [(iso2, year, population) for (iso2, year), population in unique_rows.items()]
 
     if not rows:
         print("No data to store")
         return
 
-    print(f"\nPreparing to store {len(rows)} unique population rows...")
+    print(f"\nPreparing to store {len(rows)} unique population rows for {len(signals)} countries...")
 
-    # Store in batches to avoid overwhelming the database
     batch_size = 1000
     total_stored = 0
 
@@ -267,9 +235,6 @@ def store_population_signals(signals: dict[str, list[dict]]):
                 except Exception as e:
                     print(f"  Error storing batch {i//batch_size + 1}: {e}")
                     conn.rollback()
-
-                    # Try inserting rows one by one to isolate problematic ones
-                    print(f"  Attempting individual inserts for this batch...")
                     for row in batch:
                         try:
                             execute_values(
@@ -294,25 +259,19 @@ def store_population_signals(signals: dict[str, list[dict]]):
 
 
 def main():
-    """Main execution function"""
     print("Starting UN population data fetch...\n")
 
     try:
-        # Fetch all population data
         signals = fetch_population_signals()
 
         if signals:
-            # Store in database
             store_population_signals(signals)
 
-            # Show top 20 most populous countries
             print("\nTop 20 most populous countries:")
-            country_populations = []
-            for iso2, data_rows in signals.items():
-                latest = max(data_rows, key=lambda r: r["year"])
-                country_populations.append((iso2, latest["population"]))
-
-            # Sort by population (largest first) and show top 20
+            country_populations = [
+                (iso2, max(rows, key=lambda r: r["year"])["population"])
+                for iso2, rows in signals.items()
+            ]
             country_populations.sort(key=lambda x: x[1], reverse=True)
             for i, (iso2, pop) in enumerate(country_populations[:20], 1):
                 print(f"  {i}. {iso2}: {pop:.2f}M")
