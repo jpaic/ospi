@@ -2,7 +2,8 @@
 
 import { useEffect, useRef } from 'react'
 import type { Country } from '@/lib/types'
-import { deltaStr, signalColor, confLabel, confColor } from '@/lib/estimator'
+import { confLabel, confColor } from '@/lib/estimator'
+import { fmt, fmtGap, fmtPct, fmtUsd } from '@/lib/fmt'
 import { useDataSource } from '@/lib/dataSource'
 import type { Chart as ChartType } from 'chart.js'
 
@@ -15,6 +16,17 @@ const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
   { key: 'mobility',    label: 'Mobility'    },
   { key: 'internet',    label: 'Internet'    },
 ]
+
+function signalColor(v: number): string {
+  if (v >= 75) return '#1D9E75'
+  if (v >= 50) return '#EF9F27'
+  return '#E24B4A'
+}
+
+function deltaStr(c: Country): string {
+  const pct = ((c.ospi - c.official) / c.official) * 100
+  return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
+}
 
 export default function CountryDetail({ country: c }: Props) {
   const { noSignals } = useDataSource()
@@ -70,7 +82,7 @@ export default function CountryDetail({ country: c }: Props) {
           datasets: [
             {
               label: 'OSPI',
-              data:  c.history.map(h => Math.round(h.v)),
+              data:  c.history.map(h => parseFloat(h.v.toFixed(2))),
               borderColor: '#1D9E75',
               backgroundColor: isDark ? 'rgba(29,158,117,0.1)' : 'rgba(29,158,117,0.07)',
               borderWidth: 2,
@@ -81,7 +93,7 @@ export default function CountryDetail({ country: c }: Props) {
             },
             {
               label: 'Official',
-              data:  c.history.map(() => c.official),
+              data:  c.history.map(() => parseFloat(c.official.toFixed(2))),
               borderColor: isDark ? '#3f3f46' : '#d4d4d8',
               borderWidth: 1.5,
               borderDash: [5, 4],
@@ -95,11 +107,22 @@ export default function CountryDetail({ country: c }: Props) {
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: false },
-            tooltip: { ...tooltipOpts, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
+            tooltip: {
+              ...tooltipOpts,
+              callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y as number)}` },
+            },
           },
           scales: {
             x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
-            y: { ticks: { color: tick, font: { size: 9 }, callback: v => `${v}M` }, grid: { color: grid }, border: { display: false } },
+            y: {
+              ticks: {
+                color: tick,
+                font: { size: 9 },
+                callback: v => fmt(v as number),
+              },
+              grid: { color: grid },
+              border: { display: false },
+            },
           },
         },
       })
@@ -144,14 +167,14 @@ export default function CountryDetail({ country: c }: Props) {
             datasets: [
               {
                 label: 'Official',
-                data:  c.regions.map(r => r.pop),
+                data:  c.regions.map(r => parseFloat(r.pop.toFixed(2))),
                 backgroundColor: isDark ? 'rgba(113,113,122,0.4)' : 'rgba(161,161,170,0.4)',
                 borderRadius: 3,
                 barPercentage: 0.6,
               },
               {
                 label: 'OSPI',
-                data:  c.regions.map(r => r.ospi),
+                data:  c.regions.map(r => parseFloat(r.ospi.toFixed(2))),
                 backgroundColor: '#1D9E75',
                 borderRadius: 3,
                 barPercentage: 0.6,
@@ -163,11 +186,22 @@ export default function CountryDetail({ country: c }: Props) {
             interaction: { mode: 'index', intersect: false },
             plugins: {
               legend: { display: true, labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 10 } },
-              tooltip: { ...tooltipOpts, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
+              tooltip: {
+                ...tooltipOpts,
+                callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y as number)}` },
+              },
             },
             scales: {
               x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
-              y: { ticks: { color: tick, font: { size: 9 }, callback: v => `${v}M` }, grid: { color: grid }, border: { display: false } },
+              y: {
+                ticks: {
+                  color: tick,
+                  font: { size: 9 },
+                  callback: v => fmt(v as number),
+                },
+                grid: { color: grid },
+                border: { display: false },
+              },
             },
           },
         })
@@ -200,8 +234,8 @@ export default function CountryDetail({ country: c }: Props) {
               </div>
               <p className="text-xs text-zinc-400 mt-0.5">
                 {c.region}
-                {c.densityKm2  ? ` · ${c.densityKm2} people/km²` : ''}
-                {c.urbanPct    ? ` · ${c.urbanPct}% urban`        : ''}
+                {c.densityKm2  ? ` · ${c.densityKm2.toLocaleString('en-US')} people/km²` : ''}
+                {c.urbanPct    ? ` · ${c.urbanPct.toFixed(1)}% urban`                      : ''}
               </p>
             </div>
             <div
@@ -216,11 +250,36 @@ export default function CountryDetail({ country: c }: Props) {
           {/* ── KPI strip ── */}
           <div className="grid grid-cols-5 gap-2">
             {[
-              { label: 'Official pop.',  value: `${c.official}M`,   sub: 'Census reported',    color: '' },
-              { label: 'OSPI estimate',  value: `${c.ospi}M`,       sub: 'Signal-weighted',    color: '#1D9E75' },
-              { label: 'Divergence',     value: delta,               sub: `${Math.abs(c.ospi - c.official)}M gap`, color: isPos ? '#1D9E75' : '#E24B4A' },
-              { label: 'GDP / capita',   value: c.gdpPerCapita ? `$${c.gdpPerCapita.toLocaleString()}` : '—', sub: 'USD nominal', color: '' },
-              { label: 'Annual growth',  value: `${c.growthRate > 0 ? '+' : ''}${c.growthRate}%`, sub: 'Rate p.a.', color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' },
+              {
+                label: 'Official pop.',
+                value: fmt(c.official),
+                sub:   'Census reported',
+                color: '',
+              },
+              {
+                label: 'OSPI estimate',
+                value: fmt(c.ospi),
+                sub:   'Signal-weighted',
+                color: '#1D9E75',
+              },
+              {
+                label: 'Divergence',
+                value: delta,
+                sub:   `${fmtGap(c.ospi - c.official)} gap`,
+                color: isPos ? '#1D9E75' : '#E24B4A',
+              },
+              {
+                label: 'GDP / capita',
+                value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—',
+                sub:   'USD nominal',
+                color: '',
+              },
+              {
+                label: 'Annual growth',
+                value: fmtPct(c.growthRate, true),
+                sub:   'Rate p.a.',
+                color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A',
+              },
             ].map(k => (
               <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
@@ -290,7 +349,7 @@ export default function CountryDetail({ country: c }: Props) {
                     <div key={key}>
                       <div className="flex justify-between mb-0.5">
                         <span className="text-[10px] text-zinc-500 dark:text-zinc-400">{label}</span>
-                        <span className="text-[10px] font-mono font-semibold" style={{ color: col }}>{v}/100</span>
+                        <span className="text-[10px] font-mono font-semibold" style={{ color: col }}>{v.toFixed(0)}/100</span>
                       </div>
                       <div className="h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
                         <div className="h-full rounded-full transition-all duration-700" style={{ width: `${v}%`, background: col }} />
@@ -301,7 +360,7 @@ export default function CountryDetail({ country: c }: Props) {
                 <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex justify-between items-center">
                   <span className="text-[9px] text-zinc-400 uppercase tracking-wider">Composite</span>
                   <span className="text-sm font-semibold" style={{ color: noSignals ? '#a1a1aa' : signalColor(avgSig) }}>
-                    {noSignals ? '—' : avgSig}
+                    {noSignals ? '—' : avgSig.toFixed(0)}
                   </span>
                 </div>
               </div>
@@ -343,19 +402,19 @@ export default function CountryDetail({ country: c }: Props) {
                 </thead>
                 <tbody>
                   {c.regions.map((r, i) => {
-                    const rDelta = Math.round((r.ospi - r.pop) / r.pop * 100)
-                    const rPos   = r.ospi >= r.pop
-                    const rCol   = noSignals ? '#a1a1aa' : confColor(r.conf)
+                    const rDeltaPct = ((r.ospi - r.pop) / r.pop * 100).toFixed(2)
+                    const rPos      = r.ospi >= r.pop
+                    const rCol      = noSignals ? '#a1a1aa' : confColor(r.conf)
                     return (
                       <tr
                         key={r.name}
                         className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 ${i % 2 === 0 ? '' : 'bg-zinc-50/50 dark:bg-zinc-900/50'}`}
                       >
                         <td className="px-3 py-1.5 font-medium text-zinc-700 dark:text-zinc-300">{r.name}</td>
-                        <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{r.pop}M</td>
-                        <td className="px-3 py-1.5 font-mono font-semibold text-zinc-700 dark:text-zinc-300">{r.ospi}M</td>
+                        <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{fmt(r.pop)}</td>
+                        <td className="px-3 py-1.5 font-mono font-semibold text-zinc-700 dark:text-zinc-300">{fmt(r.ospi)}</td>
                         <td className="px-3 py-1.5 font-mono font-semibold" style={{ color: rPos ? '#1D9E75' : '#E24B4A' }}>
-                          {rPos ? '+' : ''}{rDelta}%
+                          {rPos ? '+' : ''}{rDeltaPct}%
                         </td>
                         <td className="px-3 py-1.5">
                           <span

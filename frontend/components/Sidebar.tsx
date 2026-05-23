@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import type { Country } from '@/lib/types'
-import { deltaStr, confLabel, confColor, globalStats } from '@/lib/estimator'
+import { confLabel, confColor, globalStats } from '@/lib/estimator'
+import { fmt, fmtB, fmtPct } from '@/lib/fmt'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 
@@ -12,6 +13,11 @@ interface Props {
   onSelect: (c: Country) => void
   query: string
   onSearch: (q: string) => void
+}
+
+function deltaStr(c: Country): string {
+  const pct = ((c.ospi - c.official) / c.official) * 100
+  return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
 }
 
 function ConfDot({ conf }: { conf: Country['conf'] }) {
@@ -46,10 +52,10 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         <p className="text-[9px] font-medium tracking-widest uppercase text-zinc-400 mb-2">Global overview</p>
         <div className="grid grid-cols-2 gap-1.5 mb-2">
           {[
-            { label: 'Official total', value: `${(stats.totalOfficial / 1000).toFixed(1)}B` },
-            { label: 'OSPI total',     value: `${(stats.totalOspi / 1000).toFixed(1)}B`     },
-            { label: 'Avg divergence', value: `±${stats.avgDivergence}%`                    },
-            { label: 'Countries',      value: String(allCountries.length)                   },
+            { label: 'Official total', value: fmtB(stats.totalOfficial / 1000) },
+            { label: 'OSPI total',     value: fmtB(stats.totalOspi / 1000)     },
+            { label: 'Avg divergence', value: `±${stats.avgDivergence.toFixed(2)}%` },
+            { label: 'Countries',      value: String(allCountries.length)       },
           ].map(s => (
             <div key={s.label} className="bg-zinc-50 dark:bg-zinc-900 rounded px-2 py-1.5">
               <p className="text-[9px] text-zinc-400 uppercase tracking-wider">{s.label}</p>
@@ -147,8 +153,8 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                         }}
                       />
                     </div>
-                    <span className="text-[9px] text-zinc-300 dark:text-zinc-600 font-mono w-12 shrink-0">
-                      {divAbs}M gap
+                    <span className="text-[9px] text-zinc-300 dark:text-zinc-600 font-mono w-14 shrink-0 text-right">
+                      {fmt(divAbs)}
                     </span>
                   </div>
 
@@ -156,7 +162,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                   <div className="flex gap-2 mt-0.5">
                     <span className="text-[9px] text-zinc-300 dark:text-zinc-600">{c.region}</span>
                     <span className="text-[9px] text-zinc-300 dark:text-zinc-600">·</span>
-                    <span className="text-[9px] text-zinc-300 dark:text-zinc-600">{c.growthRate > 0 ? '+' : ''}{c.growthRate}%/yr</span>
+                    <span className="text-[9px] text-zinc-300 dark:text-zinc-600">{fmtPct(c.growthRate, true)}/yr</span>
                   </div>
                 </div>
 
@@ -178,8 +184,8 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
               {regOpen && (
                 <ul className="bg-zinc-50 dark:bg-zinc-900/60 border-t border-zinc-100 dark:border-zinc-800">
                   {c.regions.map(r => {
-                    const rDelta = Math.round((r.ospi - r.pop) / r.pop * 100)
-                    const rPos   = r.ospi >= r.pop
+                    const rDeltaPct = ((r.ospi - r.pop) / r.pop * 100).toFixed(2)
+                    const rPos      = r.ospi >= r.pop
                     return (
                       <li
                         key={r.name}
@@ -193,13 +199,13 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                               className="text-[10px] font-mono shrink-0 ml-1"
                               style={{ color: rPos ? '#1D9E75' : '#E24B4A' }}
                             >
-                              {rPos ? '+' : ''}{rDelta}%
+                              {rPos ? '+' : ''}{rDeltaPct}%
                             </span>
                           </div>
                           <div className="flex gap-2 text-[9px] text-zinc-300 dark:text-zinc-600 mt-0.5">
-                            <span>Off: {r.pop}M</span>
+                            <span>Off: {fmt(r.pop)}</span>
                             <span>·</span>
-                            <span>OSPI: {r.ospi}M</span>
+                            <span>OSPI: {fmt(r.ospi)}</span>
                           </div>
                         </div>
                       </li>

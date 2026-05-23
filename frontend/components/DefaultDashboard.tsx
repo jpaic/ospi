@@ -3,8 +3,13 @@
 import { useEffect, useRef } from 'react'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
-import { calcDelta, confColor, confLabel, globalStats } from '@/lib/estimator'
+import { confColor, confLabel, globalStats } from '@/lib/estimator'
+import { fmt, fmtB, fmtGap, fmtPct } from '@/lib/fmt'
 import type { Chart as ChartType } from 'chart.js'
+
+function calcDelta(c: { ospi: number; official: number }): number {
+  return parseFloat(((c.ospi - c.official) / c.official * 100).toFixed(2))
+}
 
 export default function DefaultDashboard() {
   const countries  = useCountries()
@@ -59,14 +64,14 @@ export default function DefaultDashboard() {
           datasets: [
             {
               label: 'Official',
-              data: topDivergence.map(c => c.official),
+              data: topDivergence.map(c => parseFloat(c.official.toFixed(2))),
               backgroundColor: isDark ? 'rgba(113,113,122,0.35)' : 'rgba(161,161,170,0.35)',
               borderRadius: 3,
               barPercentage: 0.65,
             },
             {
               label: 'OSPI',
-              data: topDivergence.map(c => c.ospi),
+              data: topDivergence.map(c => parseFloat(c.ospi.toFixed(2))),
               backgroundColor: topDivergence.map(c =>
                 c.ospi > c.official ? '#1D9E75' : '#E24B4A'
               ),
@@ -80,11 +85,22 @@ export default function DefaultDashboard() {
           interaction: { mode: 'index', intersect: false },
           plugins: {
             legend: { display: true, labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 12 } },
-            tooltip: { ...tooltipBase, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y}M` } },
+            tooltip: {
+              ...tooltipBase,
+              callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt(ctx.parsed.y as number)}` },
+            },
           },
           scales: {
             x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
-            y: { ticks: { color: tick, font: { size: 9 }, callback: v => `${v}M` }, grid: { color: grid }, border: { display: false } },
+            y: {
+              ticks: {
+                color: tick,
+                font: { size: 9 },
+                callback: v => fmt(v as number),
+              },
+              grid: { color: grid },
+              border: { display: false },
+            },
           },
         },
       })
@@ -96,8 +112,8 @@ export default function DefaultDashboard() {
           datasets: [{
             label: 'Countries',
             data: countries.map(c => ({
-              x: Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5),
-              y: Math.abs(calcDelta(c)),
+              x: parseFloat((Object.values(c.signals).reduce((a, b) => a + b, 0) / 5).toFixed(2)),
+              y: parseFloat(Math.abs(calcDelta(c)).toFixed(2)),
               label: c.name,
             })),
             backgroundColor: countries.map(c =>
@@ -118,7 +134,7 @@ export default function DefaultDashboard() {
               callbacks: {
                 label: (ctx: any) => {
                   const d = ctx.raw as any
-                  return ` ${d.label}  sig:${d.x}  div:${d.y}%`
+                  return ` ${d.label}  sig:${d.x.toFixed(2)}  div:${d.y.toFixed(2)}%`
                 },
               },
             },
@@ -126,13 +142,13 @@ export default function DefaultDashboard() {
           scales: {
             x: {
               title: { display: true, text: 'Avg signal score', color: tick, font: { size: 9 } },
-              ticks: { color: tick, font: { size: 9 } },
+              ticks: { color: tick, font: { size: 9 }, callback: v => (v as number).toFixed(0) },
               grid: { color: grid },
               border: { display: false },
             },
             y: {
               title: { display: true, text: 'Divergence %', color: tick, font: { size: 9 } },
-              ticks: { color: tick, font: { size: 9 }, callback: v => `${v}%` },
+              ticks: { color: tick, font: { size: 9 }, callback: v => `${(v as number).toFixed(2)}%` },
               grid: { color: grid },
               border: { display: false },
             },
@@ -146,12 +162,40 @@ export default function DefaultDashboard() {
   }, [countries, noSignals])
 
   const statCards = [
-    { label: 'Official world pop.',  value: `${(stats.totalOfficial / 1000).toFixed(2)}B`, sub: 'Government census sum' },
-    { label: 'OSPI world estimate',  value: `${(stats.totalOspi / 1000).toFixed(2)}B`,     sub: 'Signal-weighted model' },
-    { label: 'Global gap',           value: `${Math.abs(Math.round(stats.totalOspi - stats.totalOfficial))}M`, sub: 'Absolute divergence', color: '#EF9F27' },
-    { label: 'Avg divergence',       value: `±${stats.avgDivergence}%`,                    sub: 'Across all countries',  color: '#EF9F27' },
-    { label: 'High confidence',      value: `${stats.highConf}`,                            sub: `of ${countries.length} countries`, color: '#1D9E75' },
-    { label: 'Low confidence',       value: `${stats.lowConf}`,                             sub: 'Disputed or sparse',    color: '#E24B4A' },
+    {
+      label: 'Official world pop.',
+      value: fmtB(stats.totalOfficial / 1000),
+      sub:   'Government census sum',
+    },
+    {
+      label: 'OSPI world estimate',
+      value: fmtB(stats.totalOspi / 1000),
+      sub:   'Signal-weighted model',
+    },
+    {
+      label: 'Global gap',
+      value: fmtGap(stats.totalOspi - stats.totalOfficial),
+      sub:   'Absolute divergence',
+      color: '#EF9F27',
+    },
+    {
+      label: 'Avg divergence',
+      value: `±${stats.avgDivergence.toFixed(2)}%`,
+      sub:   'Across all countries',
+      color: '#EF9F27',
+    },
+    {
+      label: 'High confidence',
+      value: `${stats.highConf}`,
+      sub:   `of ${countries.length} countries`,
+      color: '#1D9E75',
+    },
+    {
+      label: 'Low confidence',
+      value: `${stats.lowConf}`,
+      sub:   'Disputed or sparse',
+      color: '#E24B4A',
+    },
   ]
 
   return (
@@ -201,7 +245,7 @@ export default function DefaultDashboard() {
           <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Official vs OSPI — top divergence countries</p>
-              <span className="text-[9px] text-zinc-300 dark:text-zinc-600">millions</span>
+              <span className="text-[9px] text-zinc-300 dark:text-zinc-600">auto-scaled</span>
             </div>
             <div style={{ height: 140 }}>
               <canvas ref={barRef} />
@@ -230,8 +274,8 @@ export default function DefaultDashboard() {
                   {(() => {
                     const highSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
                     const lowSigCountries  = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
-                    const avgDivHighSig    = Math.round(highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1))
-                    const avgDivLowSig     = Math.round(lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1))
+                    const avgDivHighSig    = (highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1)).toFixed(2)
+                    const avgDivLowSig     = (lowSigCountries.reduce((s, c)  => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length  || 1)).toFixed(2)
                     const outliers         = countries.filter(c => {
                       const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
                       const div = Math.abs(calcDelta(c))
@@ -277,7 +321,7 @@ export default function DefaultDashboard() {
                   <div key={c.name} className="flex items-center gap-2">
                     <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: confColor(c.conf) }} />
                     <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1 truncate">{c.name}</span>
-                    <span className="text-xs font-mono font-semibold text-emerald-500">+{c.growthRate}%</span>
+                    <span className="text-xs font-mono font-semibold text-emerald-500">{fmtPct(c.growthRate, true)}</span>
                     <div className="w-16 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-emerald-500 rounded-full"
@@ -294,7 +338,7 @@ export default function DefaultDashboard() {
                   {declining.length > 0 ? declining.map(c => (
                     <div key={c.name} className="flex items-center justify-between">
                       <span className="text-[11px] text-zinc-500 dark:text-zinc-400">{c.name}</span>
-                      <span className="text-[11px] font-mono font-semibold text-red-500">{c.growthRate}%/yr</span>
+                      <span className="text-[11px] font-mono font-semibold text-red-500">{fmtPct(c.growthRate)}/yr</span>
                     </div>
                   )) : (
                     <p className="text-[10px] text-zinc-300 dark:text-zinc-600">None in current dataset</p>
@@ -334,7 +378,7 @@ export default function DefaultDashboard() {
                   const d   = calcDelta(c)
                   const isP = d >= 0
                   const col = noSignals
-                    ? '#a1a1aa'  // all gray when no signals
+                    ? '#a1a1aa'
                     : confColor(c.conf)
                   return (
                     <tr
@@ -348,13 +392,13 @@ export default function DefaultDashboard() {
                         </div>
                       </td>
                       <td className="px-3 py-1.5 text-zinc-400 text-[10px]">{c.region}</td>
-                      <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{c.official}M</td>
-                      <td className="px-3 py-1.5 font-mono font-medium text-zinc-700 dark:text-zinc-300">{c.ospi}M</td>
+                      <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{fmt(c.official)}</td>
+                      <td className="px-3 py-1.5 font-mono font-medium text-zinc-700 dark:text-zinc-300">{fmt(c.ospi)}</td>
                       <td className="px-3 py-1.5 font-mono font-semibold" style={{ color: isP ? '#1D9E75' : '#E24B4A' }}>
-                        {isP ? '+' : ''}{d}%
+                        {fmtPct(d, true)}
                       </td>
                       <td className="px-3 py-1.5 font-mono text-[10px]" style={{ color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' }}>
-                        {c.growthRate > 0 ? '+' : ''}{c.growthRate}%
+                        {fmtPct(c.growthRate, true)}
                       </td>
                       <td className="px-3 py-1.5">
                         <span
