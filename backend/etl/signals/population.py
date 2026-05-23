@@ -3,7 +3,7 @@ import time
 import httpx
 from db.connection import get_conn
 from dotenv import load_dotenv
-from etl.utils.countries import get_valid_iso2_codes
+from etl.utils.countries import get_valid_country_codes
 from psycopg2.extras import execute_values
 
 load_dotenv()
@@ -11,6 +11,7 @@ load_dotenv()
 UN_API_TOKEN = os.getenv("UN_API_TOKEN")
 BASE = "https://population.un.org/dataportalapi/api/v1"
 INDICATOR_TOTAL_POP = 49
+MEDIUM_VARIANT_ID = 4  # UN WPP projection variant IDs: 4=Medium, 5=High, 6=Low (see /dataportalapi/api/v1/variants)
 START_YEAR = 2018
 END_YEAR = 2024
 
@@ -18,7 +19,6 @@ HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
 
 
 def fetch_all_locations() -> list[dict]:
-    """Fetch all locations from UN API"""
     locations = []
     page = 1
     total_pages = 1
@@ -60,7 +60,6 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
             data = r.json()
 
             rows = data.get("data", data if isinstance(data, list) else [])
-
             if not rows:
                 return []
 
@@ -68,7 +67,7 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
 
             year_map = {}
             for row in rows:
-                if row.get("value") is not None:
+                if row.get("value") is not None and row.get("variantId") == MEDIUM_VARIANT_ID:
                     year = int(row["timeLabel"])
                     year_map[year] = row["value"] / 1_000_000
 
@@ -76,12 +75,11 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
 
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 502 and attempt < max_retries - 1:
-                delay = 2 ** attempt
-                print(f"  {location_name}: 502 error, retry {attempt + 1}/{max_retries} in {delay}s")
-                time.sleep(delay)
+                time.sleep(2 ** attempt)
+                print(f"  {location_name}: 502 error, retry {attempt + 1}/{max_retries}")
                 continue
             raise
-        except Exception as e:
+        except Exception:
             if attempt < max_retries - 1:
                 time.sleep(1)
                 continue
@@ -90,43 +88,52 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
     return []
 
 
-def fetch_population_signals() -> dict[str, list[dict]]:
-    """Returns {iso2: [{year, population}, ...]}"""
-    valid_codes = get_valid_iso2_codes()
-    print(f"Valid country codes loaded: {len(valid_codes)}")
-
-    print("\nFetching all locations from UN Data Portal...\n")
-    all_locations = fetch_all_locations()
-    print(f"\nTotal locations from UN API: {len(all_locations)}")
-
-    # Filter locations to valid countries
-    skipped_no_iso2 = 0
+def filter_locations(all_locations: list[dict], valid_iso2: set[str], valid_iso3: set[str]) -> tuple[list[dict], int, list[str]]:
+    skipped = 0
     skipped_not_valid = []
     countries = []
 
     for loc in all_locations:
         iso2 = loc.get("Iso2", "")
+        iso3 = loc.get("Iso3", "")
+
         if not iso2 or len(iso2) != 2:
-            skipped_no_iso2 += 1
+            skipped += 1
             continue
-        if iso2 not in valid_codes:
+        if iso3 not in valid_iso3:
+            skipped += 1
+            continue
+
+        if iso2 not in valid_iso2:
             skipped_not_valid.append(f"{iso2} ({loc.get('Name', '?')})")
             continue
+
         countries.append(loc)
+
+    return countries, skipped, skipped_not_valid
+
+
+def fetch_population_signals() -> dict[str, list[dict]]:
+    """Returns {iso2: [{year, population}, ...]}"""
+    valid_iso2, valid_iso3 = get_valid_country_codes()
+    print(f"Valid country codes loaded: {len(valid_iso2)}")
+
+    print("\nFetching all locations from UN Data Portal...\n")
+    all_locations = fetch_all_locations()
+    print(f"\nTotal locations from UN API: {len(all_locations)}")
+
+    countries, skipped, skipped_not_valid = filter_locations(all_locations, valid_iso2, valid_iso3)
 
     print(f"\n--- Location filter breakdown ---")
     print(f"Matched valid countries:  {len(countries)}")
-    print(f"Skipped (no ISO2):        {skipped_no_iso2}")
+    print(f"Skipped (invalid):        {skipped}")
     print(f"Skipped (not valid):      {len(skipped_not_valid)}")
-    print(f"\nFiltered out locations (aggregates/regions):")
-    for s in sorted(skipped_not_valid):
-        print(f"  {s}")
 
     if not countries:
         print("No countries found!")
         return {}
 
-    print("Fetching population data for all countries...\n")
+    print("\nFetching population data for all countries...\n")
     results = {}
     success_count = 0
     no_data_count = 0
@@ -149,19 +156,13 @@ def fetch_population_signals() -> dict[str, list[dict]]:
                 no_data_countries.append(f"{iso2} ({name})")
                 continue
 
-            latest = rows[-1]
-
-            if latest["population"] == 0:
+            if rows[-1]["population"] == 0:
                 no_data_count += 1
                 no_data_countries.append(f"{iso2} ({name}) — zero population")
                 continue
 
             results[iso2] = rows
             success_count += 1
-
-            if success_count <= 20:
-                print(f"  {name} ({iso2}) — {latest['population']:.2f}M ({latest['year']})")
-
             time.sleep(0.2)
 
         except Exception as e:
@@ -184,23 +185,21 @@ def fetch_population_signals() -> dict[str, list[dict]]:
         for c in fail_countries:
             print(f"  {c}")
 
-    missing = valid_codes - set(results.keys())
-    print(f"\nValid countries with NO population data ({len(missing)}):")
-    for code in sorted(missing):
-        print(f"  {code}")
+    missing = valid_iso2 - set(results.keys())
+    if missing:
+        print(f"\nValid countries with NO population data ({len(missing)}):")
+        for code in sorted(missing):
+            print(f"  {code}")
 
     return results
 
 
 def store_population_signals(signals: dict[str, list[dict]]):
-    unique_rows = {}
-
-    for iso2, data_rows in signals.items():
-        for row in data_rows:
-            key = (iso2, row["year"])
-            if key not in unique_rows:
-                unique_rows[key] = row["population"]
-
+    unique_rows = {
+        (iso2, row["year"]): row["population"]
+        for iso2, data_rows in signals.items()
+        for row in data_rows
+    }
     rows = [(iso2, year, population) for (iso2, year), population in unique_rows.items()]
 
     if not rows:
@@ -237,18 +236,14 @@ def store_population_signals(signals: dict[str, list[dict]]):
                     conn.rollback()
                     for row in batch:
                         try:
-                            execute_values(
-                                cur,
-                                """
+                            execute_values(cur, """
                                 INSERT INTO populations (iso2, year, population)
                                 VALUES %s
                                 ON CONFLICT (iso2, year)
                                 DO UPDATE SET
                                     population = EXCLUDED.population,
                                     fetched_at = now()
-                                """,
-                                [row],
-                            )
+                            """, [row])
                             conn.commit()
                             total_stored += 1
                         except Exception as row_error:
@@ -268,11 +263,11 @@ def main():
             store_population_signals(signals)
 
             print("\nTop 20 most populous countries:")
-            country_populations = [
-                (iso2, max(rows, key=lambda r: r["year"])["population"])
-                for iso2, rows in signals.items()
-            ]
-            country_populations.sort(key=lambda x: x[1], reverse=True)
+            country_populations = sorted(
+                [(iso2, max(rows, key=lambda r: r["year"])["population"]) for iso2, rows in signals.items()],
+                key=lambda x: x[1],
+                reverse=True,
+            )
             for i, (iso2, pop) in enumerate(country_populations[:20], 1):
                 print(f"  {i}. {iso2}: {pop:.2f}M")
         else:
