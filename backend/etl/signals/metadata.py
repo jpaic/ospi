@@ -174,7 +174,7 @@ async def fetch_country_metadata(
         "name":           name,
         "lat":            country.get("Latitude"),
         "lng":            country.get("Longitude"),
-        "region":         country.get("SubRegion") or "Unknown",
+        "region":         country.get("SubRegion") or country.get("Region") or "Unknown",
         "urban_pct":      None,
         "density_km2":    None,
         "gdp_per_capita": None,
