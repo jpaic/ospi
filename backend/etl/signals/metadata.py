@@ -17,7 +17,7 @@ MEDIUM_VARIANT_ID   = 4   # UN WPP: 4=Medium, 5=High, 6=Low
 SEX_BOTH            = 3   # 1=Male, 2=Female, 3=Both sexes
 REFERENCE_YEAR      = 2024
 
-CONCURRENCY         = 3  # max simultaneous in-flight requests
+CONCURRENCY         = 8  # max simultaneous in-flight requests
 
 UN_HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
 
@@ -48,36 +48,40 @@ async def _get_with_retry(
     headers: dict | None = None,
     max_retries: int = 3,
 ) -> dict | list | None:
-    """GET with exponential backoff on 502. Returns parsed JSON or None on failure."""
+    """GET with exponential backoff on 429/502. Returns parsed JSON or None on failure."""
     for attempt in range(max_retries):
         try:
             r = await client.get(url, headers=headers)
             r.raise_for_status()
             return r.json()
+
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 502 and attempt < max_retries - 1:
+            status = e.response.status_code
+
+            if status == 404:
+                return None  # no data for this indicator/location — not an error
+
+            if status == 429:
+                retry_after = int(e.response.headers.get("Retry-After", 10))
+                print(f"  {label}: rate limited, waiting {retry_after}s")
+                await asyncio.sleep(retry_after)
+                continue
+
+            if status == 502 and attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
                 print(f"  {label}: 502 retry {attempt + 1}/{max_retries}")
                 continue
-            print(f"  {label}: HTTP {e.response.status_code}")
+
+            print(f"  {label}: HTTP {status}")
             return None
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                retry_after = int(e.response.headers.get("Retry-After", 5))
-                print(f"  {label}: rate limited, waiting {retry_after}s")
-                await asyncio.sleep(retry_after)
-                continue  # retry this attempt
-            if e.response.status_code == 502 and attempt < max_retries - 1:
-                await asyncio.sleep(2 ** attempt)
-                continue
-            print(f"  {label}: HTTP {e.response.status_code}")
-            return None
+
         except Exception as e:
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
                 continue
             print(f"  {label}: {e}")
             return None
+
     return None
 
 
@@ -162,24 +166,37 @@ async def fetch_country_metadata(
     loc_id = country["Id"]
     name   = country["Name"]
 
-    async with sem:
-        urban, land_area, gdp = await asyncio.gather(
-            fetch_urban_pct_async(client, loc_id, name),
-            fetch_land_area_async(client, iso2),
-            fetch_gdp_async(client, iso2),
-        )
-    await asyncio.sleep(0.3 + (hash(iso2) % 10) * 0.05)  # 0.3–0.8s jitter
-
-    return iso2, {
+    # Static fields always populated — never lost if enrichment fails
+    # NOTE: XK, MF, BL, GG, JE have no coords in the UN API.
+    # Run db/patches/coords_patch.sql once to set them manually.
+    record: dict = {
         "iso3":           country.get("Iso3") or None,
         "name":           name,
         "lat":            country.get("Latitude"),
         "lng":            country.get("Longitude"),
         "region":         country.get("SubRegion") or "Unknown",
-        "urban_pct":      urban,
-        "density_km2":    compute_density(pop_from_db.get(iso2), land_area),
-        "gdp_per_capita": gdp,
+        "urban_pct":      None,
+        "density_km2":    None,
+        "gdp_per_capita": None,
     }
+
+    try:
+        async with sem:
+            urban, land_area, gdp = await asyncio.gather(
+                fetch_urban_pct_async(client, loc_id, name),
+                fetch_land_area_async(client, iso2),
+                fetch_gdp_async(client, iso2),
+            )
+        await asyncio.sleep(0.3 + (hash(iso2) % 10) * 0.05)  # 0.3–0.8s jitter
+
+        record["urban_pct"]      = urban
+        record["density_km2"]    = compute_density(pop_from_db.get(iso2), land_area)
+        record["gdp_per_capita"] = gdp
+
+    except Exception as e:
+        print(f"  {name}: enrichment failed — {e}")
+
+    return iso2, record
 
 
 # ---------------------------------------------------------------------------
@@ -187,14 +204,14 @@ async def fetch_country_metadata(
 # ---------------------------------------------------------------------------
 
 async def _fetch_all_async(countries: list[dict], pop_from_db: dict[str, float]) -> dict[str, dict]:
-    sem     = asyncio.Semaphore(CONCURRENCY)
-    results = {}
+    sem          = asyncio.Semaphore(CONCURRENCY)
     fail_countries = []
 
     async with httpx.AsyncClient(timeout=30) as client:
-        tasks   = [fetch_country_metadata(client, sem, c, pop_from_db) for c in countries]
+        tasks    = [fetch_country_metadata(client, sem, c, pop_from_db) for c in countries]
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
 
+    results       = {}
     success_count = 0
     fail_count    = 0
 
@@ -317,7 +334,7 @@ def store_metadata_signals(signals: dict[str, dict]):
             )
         conn.commit()
 
-    print(f"\nSuccessfully stored metadata for {len(rows)} countries")
+    print(f"\n✓ Successfully stored metadata for {len(rows)} countries")
 
 
 def main():

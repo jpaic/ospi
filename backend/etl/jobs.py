@@ -26,6 +26,6 @@ def run_electricity():
 
 
 if __name__ == "__main__":
-    #run_population()
+    run_population()
     run_metadata()
-    #run_electricity()
+    run_electricity()
