@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
@@ -11,6 +11,80 @@ function calcDelta(c: { ospi: number; official: number }): number {
   return parseFloat(((c.ospi - c.official) / c.official * 100).toFixed(2))
 }
 
+// ─── Sort types ───────────────────────────────────────────────────────────────
+
+type SortKey = 'name' | 'region' | 'official' | 'ospi' | 'delta' | 'growthRate' | 'conf'
+type SortDir = 'asc' | 'desc'
+
+// ─── Sort icon (chevrons — industry standard) ─────────────────────────────────
+
+// active: this column is the sorted one
+// dir: current sort direction (only meaningful when active)
+// canReset: next click will reset — show both arrows equally dim
+function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
+  // keep the active arrow fully lit; on canReset just dim the inactive one more
+  const upOp   = active && dir === 'asc'  ? 1 : 0.2
+  const downOp = active && dir === 'desc' ? 1 : 0.2
+  return (
+    <span
+      className="inline-flex flex-col items-center justify-center shrink-0"
+      style={{ gap: 2, marginLeft: 3, verticalAlign: 'middle', lineHeight: 0 }}
+      aria-hidden
+    >
+      <svg width="7" height="5" viewBox="0 0 7 5" style={{ opacity: upOp, display: 'block' }}>
+        <path d="M3.5 0L7 5H0L3.5 0Z" fill="currentColor" />
+      </svg>
+      <svg width="7" height="5" viewBox="0 0 7 5" style={{ opacity: downOp, display: 'block' }}>
+        <path d="M3.5 5L0 0H7L3.5 5Z" fill="currentColor" />
+      </svg>
+    </span>
+  )
+}
+
+// ─── Column header button ──────────────────────────────────────────────────────
+
+function ThBtn({
+  label,
+  col,
+  sortKey,
+  sortDir,
+  sortClicks,
+  onSort,
+}: {
+  label: string
+  col: SortKey
+  sortKey: SortKey
+  sortDir: SortDir
+  sortClicks: number
+  onSort: (col: SortKey) => void
+}) {
+  const active   = sortKey === col
+  // The direction shown in the icon must reflect THIS column's current state,
+  // not the global sortDir (which belongs to whichever column is active).
+  const iconDir  = active ? sortDir : 'asc'
+  const canReset = active && sortClicks === 2
+  const tip = canReset
+    ? `Click again to reset to default (A→Z)`
+    : active
+    ? `Click to sort ${sortDir === 'asc' ? 'descending' : 'ascending'}`
+    : `Sort by ${label}`
+  return (
+    <button
+      onClick={() => onSort(col)}
+      className="flex items-center gap-0.5 text-left text-[9px] uppercase tracking-wider font-medium select-none"
+      style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0 }}
+      title={tip}
+    >
+      <span className={active ? 'text-zinc-700 dark:text-zinc-200' : 'text-zinc-400'}>
+        {label}
+      </span>
+      <SortIcon active={active} dir={iconDir} />
+    </button>
+  )
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function DefaultDashboard() {
   const countries = useCountries()
   const { noSignals } = useDataSource()
@@ -19,6 +93,38 @@ export default function DefaultDashboard() {
   const scatterRef = useRef<HTMLCanvasElement>(null)
   const barInst = useRef<ChartType | null>(null)
   const scatInst = useRef<ChartType | null>(null)
+
+  // Default: alphabetical A → Z (matches original)
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
+  // Tracks how many times the current column has been clicked (1=first dir, 2=flipped, 3=reset)
+  const [sortClicks, setSortClicks] = useState(1)
+
+  const DEFAULT_KEY: SortKey = 'name'
+  const DEFAULT_DIR: SortDir = 'asc'
+
+  const handleSort = (col: SortKey) => {
+    if (sortKey === col) {
+      const nextClicks = sortClicks + 1
+      if (nextClicks > 2) {
+        // 3rd click → reset to default
+        setSortKey(DEFAULT_KEY)
+        setSortDir(DEFAULT_DIR)
+        setSortClicks(1)
+      } else {
+        // 2nd click → flip direction
+        setSortDir(d => (d === 'asc' ? 'desc' : 'asc'))
+        setSortClicks(nextClicks)
+      }
+    } else {
+      // New column → default to desc for growthRate / delta, asc for everything else
+      setSortKey(col)
+      // desc-first columns: biggest/best value surfaces at top on first click
+      const descFirst: SortKey[] = ['official', 'ospi', 'growthRate', 'delta', 'conf']
+      setSortDir(descFirst.includes(col) ? 'desc' : 'asc')
+      setSortClicks(1)
+    }
+  }
 
   const stats = globalStats(countries)
 
@@ -29,15 +135,47 @@ export default function DefaultDashboard() {
   const declining = [...countries]
     .filter(c => c.growthRate < 0)
     .sort((a, b) => {
-      // score = growthRate penalized by small population
-      // official is in millions — log scale so China doesn't totally dominate
       const score = (c: { growthRate: number; official: number }) =>
         c.growthRate * Math.log10(Math.max(c.official, 0.1))
       return score(a) - score(b)
     })
     .slice(0, 8)
+
   const fastest = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
-  const alphabetical = [...countries].sort((a, b) => a.name.localeCompare(b.name))
+
+  // ── Sorted table data ──────────────────────────────────────────────────────
+
+  const confRank = (conf: string) => {
+    const c = (conf ?? '').toLowerCase().trim()
+    if (c === 'high' || c === 'hi' || c === 'h') return 2
+    if (c === 'medium' || c === 'med' || c === 'moderate' || c === 'm') return 1
+    return 0 // 'low', 'lo', unknown
+  }
+
+  const sortedRows = [...countries].sort((a, b) => {
+    let va: number | string
+    let vb: number | string
+
+    switch (sortKey) {
+      case 'name':    va = a.name;          vb = b.name;          break
+      case 'region':  va = a.region;        vb = b.region;        break
+      case 'official':va = a.official;      vb = b.official;      break
+      case 'ospi':    va = a.ospi;          vb = b.ospi;          break
+      case 'delta':   va = calcDelta(a);    vb = calcDelta(b);    break
+      case 'growthRate': va = a.growthRate; vb = b.growthRate;    break
+      case 'conf':    va = confRank(a.conf);vb = confRank(b.conf);break
+      default:        va = a.name;          vb = b.name;
+    }
+
+    if (typeof va === 'string' && typeof vb === 'string') {
+      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
+    }
+    return sortDir === 'asc'
+      ? (va as number) - (vb as number)
+      : (vb as number) - (va as number)
+  })
+
+  // ── Chart init ────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!barRef.current || !scatterRef.current) return
@@ -65,7 +203,6 @@ export default function DefaultDashboard() {
         padding: 8,
       }
 
-      // Divergence bar chart
       barInst.current = new Chart(barRef.current!, {
         type: 'bar',
         data: {
@@ -102,11 +239,7 @@ export default function DefaultDashboard() {
           scales: {
             x: { ticks: { color: tick, font: { size: 9 } }, grid: { display: false }, border: { display: false } },
             y: {
-              ticks: {
-                color: tick,
-                font: { size: 9 },
-                callback: v => fmt(v as number),
-              },
+              ticks: { color: tick, font: { size: 9 }, callback: v => fmt(v as number) },
               grid: { color: grid },
               border: { display: false },
             },
@@ -114,7 +247,6 @@ export default function DefaultDashboard() {
         },
       })
 
-      // Scatter: signal composite vs divergence
       scatInst.current = new Chart(scatterRef.current!, {
         type: 'scatter',
         data: {
@@ -170,49 +302,42 @@ export default function DefaultDashboard() {
     return () => { barInst.current?.destroy(); scatInst.current?.destroy() }
   }, [countries, noSignals])
 
+  // ── Stat cards ────────────────────────────────────────────────────────────
+
   const statCards = [
-    {
-      label: 'Official world pop.',
-      value: fmtB(stats.totalOfficial / 1000),
-      sub: 'Government census sum',
-    },
-    {
-      label: 'OSPI world estimate',
-      value: fmtB(stats.totalOspi / 1000),
-      sub: 'Signal-weighted model',
-    },
-    {
-      label: 'Global gap',
-      value: fmtGap(stats.totalOspi - stats.totalOfficial),
-      sub: 'Absolute divergence',
-      color: '#EF9F27',
-    },
-    {
-      label: 'Avg divergence',
-      value: `±${stats.avgDivergence.toFixed(2)}%`,
-      sub: 'Across all countries',
-      color: '#EF9F27',
-    },
-    {
-      label: 'High confidence',
-      value: `${stats.highConf}`,
-      sub: `of ${countries.length} countries`,
-      color: '#1D9E75',
-    },
-    {
-      label: 'Low confidence',
-      value: `${stats.lowConf}`,
-      sub: 'Disputed or sparse',
-      color: '#E24B4A',
-    },
+    { label: 'Official world pop.',  value: fmtB(stats.totalOfficial / 1000), sub: 'Government census sum' },
+    { label: 'OSPI world estimate',  value: fmtB(stats.totalOspi / 1000),     sub: 'Signal-weighted model' },
+    { label: 'Global gap',           value: fmtGap(stats.totalOspi - stats.totalOfficial), sub: 'Absolute divergence', color: '#EF9F27' },
+    { label: 'Avg divergence',       value: `±${stats.avgDivergence.toFixed(2)}%`,          sub: 'Across all countries',  color: '#EF9F27' },
+    { label: 'High confidence',      value: `${stats.highConf}`,              sub: `of ${countries.length} countries`, color: '#1D9E75' },
+    { label: 'Low confidence',       value: `${stats.lowConf}`,               sub: 'Disputed or sparse',  color: '#E24B4A' },
   ]
+
+  // ── Column definitions ────────────────────────────────────────────────────
+
+  const columns: { label: string; key: SortKey }[] = [
+    { label: 'Country',  key: 'name' },
+    { label: 'Region',   key: 'region' },
+    { label: 'Official', key: 'official' },
+    { label: 'OSPI',     key: 'ospi' },
+    { label: 'Δ',        key: 'delta' },
+    { label: 'Growth',   key: 'growthRate' },
+    { label: 'Conf.',    key: 'conf' },
+  ]
+
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div
       className="h-full overflow-y-auto"
       style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
     >
-      <style>{`.dd-scroll::-webkit-scrollbar{width:3px}.dd-scroll::-webkit-scrollbar-track{background:transparent}.dd-scroll::-webkit-scrollbar-thumb{background:rgba(113,113,122,0.2);border-radius:99px}`}</style>
+      <style>{`
+        .dd-scroll::-webkit-scrollbar{width:3px}
+        .dd-scroll::-webkit-scrollbar-track{background:transparent}
+        .dd-scroll::-webkit-scrollbar-thumb{background:rgba(113,113,122,0.2);border-radius:99px}
+        th button:hover span { text-decoration: underline; text-underline-offset: 2px; }
+      `}</style>
       <div className="dd-scroll h-full overflow-y-auto">
         <div className="p-4 space-y-4">
 
@@ -264,7 +389,6 @@ export default function DefaultDashboard() {
           {/* Row: scatter + fastest growth */}
           <div className="grid grid-cols-2 gap-3">
 
-            {/* Scatter — grayed out when no signals */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal quality vs divergence</p>
@@ -277,7 +401,6 @@ export default function DefaultDashboard() {
                 <canvas ref={scatterRef} />
               </div>
 
-              {/* Derived insight strip */}
               {!noSignals && (
                 <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
                   {(() => {
@@ -314,7 +437,6 @@ export default function DefaultDashboard() {
                 </div>
               )}
 
-              {/* Placeholder when no signals */}
               {noSignals && (
                 <p className="mt-3 text-[9px] text-zinc-300 dark:text-zinc-600 border-t border-zinc-100 dark:border-zinc-800 pt-2.5">
                   Signal insight unavailable — run your model to populate signal scores.
@@ -322,7 +444,6 @@ export default function DefaultDashboard() {
               )}
             </div>
 
-            {/* Fastest growing */}
             <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Fastest growing</p>
               <div className="space-y-2">
@@ -332,10 +453,7 @@ export default function DefaultDashboard() {
                     <span className="text-xs text-zinc-700 dark:text-zinc-300 flex-1 truncate">{c.name}</span>
                     <span className="text-xs font-mono font-semibold text-emerald-500">{fmtPct(c.growthRate, true)}</span>
                     <div className="w-16 h-1 bg-zinc-200 dark:bg-zinc-700 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 rounded-full"
-                        style={{ width: `${(c.growthRate / 3.5) * 100}%` }}
-                      />
+                      <div className="h-full bg-emerald-500 rounded-full" style={{ width: `${(c.growthRate / 3.5) * 100}%` }} />
                     </div>
                   </div>
                 ))}
@@ -357,15 +475,15 @@ export default function DefaultDashboard() {
             </div>
           </div>
 
-          {/* Summary table — alphabetical */}
+          {/* Summary table — sortable */}
           <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg overflow-hidden">
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries — A → Z</p>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">All countries</p>
               <div className="flex gap-3">
                 {[
                   { label: 'High', col: '#1D9E75' },
-                  { label: 'Med', col: '#EF9F27' },
-                  { label: 'Low', col: '#E24B4A' },
+                  { label: 'Med',  col: '#EF9F27' },
+                  { label: 'Low',  col: '#E24B4A' },
                 ].map(b => (
                   <span key={b.label} className="flex items-center gap-1 text-[9px]" style={{ color: b.col }}>
                     <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: b.col }} />
@@ -374,21 +492,33 @@ export default function DefaultDashboard() {
                 ))}
               </div>
             </div>
+
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                  {['Country', 'Region', 'Official', 'OSPI', 'Δ', 'Growth', 'Conf.'].map(h => (
-                    <th key={h} className="text-left px-3 py-1.5 text-[9px] uppercase tracking-wider text-zinc-400 font-medium">{h}</th>
+                  {columns.map(col => (
+                    <th
+                      key={col.key}
+                      className="text-left px-3 py-1.5"
+                      style={{ whiteSpace: 'nowrap' }}
+                    >
+                      <ThBtn
+                        label={col.label}
+                        col={col.key}
+                        sortKey={sortKey}
+                        sortDir={sortDir}
+                        sortClicks={sortClicks}
+                        onSort={handleSort}
+                      />
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {alphabetical.map((c, i) => {
+                {sortedRows.map((c, i) => {
                   const d = calcDelta(c)
                   const isP = d >= 0
-                  const col = noSignals
-                    ? '#a1a1aa'
-                    : confColor(c.conf)
+                  const col = noSignals ? '#a1a1aa' : confColor(c.conf)
                   return (
                     <tr
                       key={c.name}
