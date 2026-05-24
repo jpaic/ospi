@@ -3,9 +3,10 @@
 import { useEffect, useRef } from 'react'
 import type { Country } from '@/lib/types'
 import { confLabel, confColor } from '@/lib/estimator'
-import { fmt, fmtGap, fmtPct, fmtUsd } from '@/lib/fmt'
+import { fmt, fmtGap, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
 import { useDataSource } from '@/lib/dataSource'
 import type { Chart as ChartType } from 'chart.js'
+
 
 interface Props { country: Country }
 
@@ -269,7 +270,7 @@ export default function CountryDetail({ country: c }: Props) {
               </div>
               <p className="text-xs text-zinc-400 mt-0.5">
                 {c.region}
-                {c.densityKm2 ? ` · ${c.densityKm2.toLocaleString('en-US')} people/km²` : ''}
+                {c.densityKm2 ? ` · ${fmtDensity(c.densityKm2)}` : ''}
                 {c.urbanPct ? ` · ${c.urbanPct.toFixed(1)}% urban` : ''}
               </p>
             </div>

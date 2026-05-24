@@ -6,7 +6,7 @@ import { DataSourceProvider } from '@/lib/dataSource'
 import { useCountries, fetchBackendCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { sortByDivergence } from '@/lib/estimator'
-import { fmt, fmtPct } from '@/lib/fmt'
+import { fmt, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
 import type { Country } from '@/lib/types'
 import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
@@ -23,7 +23,7 @@ function OSPIInner() {
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-      fetchBackendCountries().catch(() => {})
+      fetchBackendCountries().catch(() => { })
     }
   }, [])
 
@@ -154,10 +154,10 @@ function QuickStats({ country: c }: { country: Country }) {
       {[
         { label: 'Official', value: fmt(c.official) },
         { label: 'OSPI est.', value: fmt(c.ospi) },
-        { label: 'Urban',    value: c.urbanPct   ? `${c.urbanPct}%`      : '—' },
-        { label: 'Density',  value: c.densityKm2 ? `${c.densityKm2}/km²` : '—' },
-        { label: 'Growth',   value: `${fmtPct(c.growthRate, true)}/yr` },
-        { label: 'GDP/cap',  value: c.gdpPerCapita ? `$${fmt(c.gdpPerCapita)}` : '—' },
+        { label: 'Urban', value: c.urbanPct ? `${c.urbanPct.toFixed(2)}%` : '—' },
+        { label: 'Density', value: c.densityKm2 ? fmtDensity(c.densityKm2) : '—' },
+        { label: 'Growth', value: `${fmtPct(c.growthRate, true)}/yr` },
+        { label: 'GDP/cap', value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—' },
       ].map(r => (
         <div key={r.label} className="flex justify-between">
           <span className="text-[10px] text-zinc-400">{r.label}</span>
