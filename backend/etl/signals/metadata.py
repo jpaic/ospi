@@ -1,6 +1,7 @@
 import asyncio
 import os
 import httpx
+from pathlib import Path
 from db.connection import get_conn
 from dotenv import load_dotenv
 from etl.utils.countries import get_valid_country_codes, fetch_all_locations, filter_locations
@@ -151,6 +152,22 @@ def compute_density(population_abs: float | None, land_area_km2: float | None) -
         return round(population_abs / land_area_km2, 4)
     return None
 
+def apply_coords_patch():
+    """Run db/patches/coords_patch.sql to fill missing lat/lng for XK, MF, BL, GG, JE."""
+    patch_path = Path(__file__).resolve().parents[2] / "db" / "patches" / "coords_patch.sql"
+
+    if not patch_path.exists():
+        print(f"  coords_patch.sql not found at {patch_path}, skipping")
+        return
+
+    sql = patch_path.read_text()
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+        conn.commit()
+
+    print("Coordinate patch applied (XK, MF, BL, GG, JE)")
 
 # ---------------------------------------------------------------------------
 # Per-country coroutine
@@ -334,7 +351,8 @@ def store_metadata_signals(signals: dict[str, dict]):
             )
         conn.commit()
 
-    print(f"\n✓ Successfully stored metadata for {len(rows)} countries")
+    print(f"\nSuccessfully stored metadata for {len(rows)} countries")
+    apply_coords_patch()
 
 
 def main():
