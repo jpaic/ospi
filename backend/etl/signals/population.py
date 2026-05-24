@@ -3,48 +3,20 @@ import time
 import httpx
 from db.connection import get_conn
 from dotenv import load_dotenv
-from etl.utils.countries import get_valid_country_codes
+from etl.utils.countries import get_valid_country_codes, fetch_all_locations, filter_locations
 from psycopg2.extras import execute_values
 
 load_dotenv()
 
-UN_API_TOKEN      = os.getenv("UN_API_TOKEN")
-BASE              = "https://population.un.org/dataportalapi/api/v1"
+UN_API_TOKEN        = os.getenv("UN_API_TOKEN")
+BASE                = "https://population.un.org/dataportalapi/api/v1"
 INDICATOR_TOTAL_POP = 49
-MEDIUM_VARIANT_ID = 4   # UN WPP: 4=Medium, 5=High, 6=Low
-SEX_BOTH          = 3   # 1=Male, 2=Female, 3=Both sexes — required to avoid half-population rows
-START_YEAR        = 2018
-END_YEAR          = 2024
+MEDIUM_VARIANT_ID   = 4   # UN WPP: 4=Medium, 5=High, 6=Low
+SEX_BOTH            = 3   # 1=Male, 2=Female, 3=Both sexes — required to avoid half-population rows
+START_YEAR          = 2018
+END_YEAR            = 2024
 
 HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
-
-
-def fetch_all_locations() -> list[dict]:
-    locations = []
-    page = 1
-    total_pages = 1
-
-    while page <= total_pages:
-        url = f"{BASE}/locationsWithAggregates?pageNumber={page}&pageSize=250"
-
-        for attempt in range(3):
-            try:
-                r = httpx.get(url, headers=HEADERS, timeout=30)
-                r.raise_for_status()
-                data = r.json()
-                break
-            except httpx.HTTPStatusError as e:
-                if e.response.status_code == 502 and attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                raise
-
-        locations.extend(data["data"])
-        total_pages = data.get("pages", 1)
-        print(f"Locations page {page}/{total_pages} — {len(locations)} so far")
-        page += 1
-
-    return locations
 
 
 def fetch_population_for_location(location_id: int, location_name: str, max_retries: int = 3) -> list[dict]:
@@ -68,7 +40,7 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
             for row in rows:
                 if row.get("variantId") != MEDIUM_VARIANT_ID:
                     continue
-                if row.get("sexId") != SEX_BOTH:        # ← fix: exclude male/female splits
+                if row.get("sexId") != SEX_BOTH:        # exclude male/female splits
                     continue
                 if row.get("value") is None:
                     continue
@@ -94,72 +66,13 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
     return []
 
 
-def filter_locations(all_locations: list[dict], valid_iso2: set[str], valid_iso3: set[str]) -> tuple[list[dict], int, list[str]]:
-    skipped = 0
-    skipped_not_valid = []
-    countries = []
-
-    for loc in all_locations:
-        iso2 = loc.get("Iso2", "")
-        iso3 = loc.get("Iso3", "")
-
-        if not iso2 or len(iso2) != 2:
-            skipped += 1
-            continue
-        if iso3 not in valid_iso3:
-            skipped += 1
-            continue
-        if iso2 not in valid_iso2:
-            skipped_not_valid.append(f"{iso2} ({loc.get('Name', '?')})")
-            continue
-
-        countries.append(loc)
-
-    return countries, skipped, skipped_not_valid
-
-
-def store_metadata(countries: list[dict]):
-    """Upsert static country fields into country_metadata."""
-    rows = [
-        (
-            loc["Iso2"],
-            loc.get("Iso3") or None,
-            loc["Name"],
-            loc.get("Latitude"),
-            loc.get("Longitude"),
-            loc.get("SubRegion") or "Unknown",
-        )
-        for loc in countries
-    ]
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            execute_values(
-                cur,
-                """
-                INSERT INTO country_metadata (iso2, iso3, name, lat, lng, region)
-                VALUES %s
-                ON CONFLICT (iso2) DO UPDATE SET
-                    iso3       = EXCLUDED.iso3,
-                    name       = EXCLUDED.name,
-                    lat        = EXCLUDED.lat,
-                    lng        = EXCLUDED.lng,
-                    region     = EXCLUDED.region,
-                    fetched_at = now()
-                """,
-                rows,
-            )
-        conn.commit()
-    print(f"  Stored {len(rows)} rows in country_metadata")
-
-
 def fetch_population_signals() -> dict[str, list[dict]]:
     """Returns {iso2: [{year, population}, ...]}"""
     valid_iso2, valid_iso3 = get_valid_country_codes()
     print(f"Valid country codes loaded: {len(valid_iso2)}")
 
     print("\nFetching all locations from UN Data Portal...\n")
-    all_locations = fetch_all_locations()
+    all_locations = fetch_all_locations(HEADERS)
     print(f"\nTotal locations from UN API: {len(all_locations)}")
 
     countries, skipped, skipped_not_valid = filter_locations(all_locations, valid_iso2, valid_iso3)
@@ -173,17 +86,13 @@ def fetch_population_signals() -> dict[str, list[dict]]:
         print("No countries found!")
         return {}
 
-    # Store metadata while we have the full location objects
-    print("\nStoring country metadata...")
-    store_metadata(countries)
-
     print("\nFetching population data for all countries...\n")
     results = {}
-    success_count = 0
-    no_data_count = 0
+    success_count   = 0
+    no_data_count   = 0
     no_data_countries = []
-    fail_count = 0
-    fail_countries = []
+    fail_count      = 0
+    fail_countries  = []
 
     for i, country in enumerate(countries):
         iso2 = country["Iso2"]
@@ -252,7 +161,7 @@ def store_population_signals(signals: dict[str, list[dict]]):
 
     print(f"\nPreparing to store {len(rows)} unique population rows for {len(signals)} countries...")
 
-    batch_size = 1000
+    batch_size  = 1000
     total_stored = 0
 
     with get_conn() as conn:
