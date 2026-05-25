@@ -4,12 +4,42 @@
  * lib/useCountries.ts
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useDataSource } from './dataSource'
 import type { Country, SignalScores } from './types'
 
-const CACHE_KEY = 'ospi:countries:v2'
+const CACHE_KEY = 'ospi:countries:v5'
 const CACHE_TTL = 24 * 60 * 60 * 1000
+
+type BackendHistoryPoint = {
+  y?: number | string
+  v?: number | string
+}
+
+type BackendOspiHistoryPoint = BackendHistoryPoint & {
+  official?: number | string
+  conf?: Country['conf']
+  composite_signal?: number | string | null
+}
+
+type BackendCountryPayload = {
+  name?: string
+  iso?: string
+  lat?: number | string
+  lng?: number | string
+  region?: string
+  official?: number | string
+  ospi?: number | string
+  conf?: Country['conf']
+  signals?: Partial<Record<keyof SignalScores, number | null>>
+  history?: BackendHistoryPoint[]
+  ospiHistory?: BackendOspiHistoryPoint[]
+  urbanPct?: number | string
+  densityKm2?: number | string
+  gdpPerCapita?: number | string
+  growthRate?: number | string
+  regions?: Country['regions']
+}
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
@@ -70,7 +100,7 @@ export async function fetchBackendCountries(): Promise<Country[]> {
       const res = await fetch(`${baseUrl}/countries/full`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`/countries/full returned ${res.status}`)
 
-      const payload: any[] = await res.json()
+      const payload = await res.json() as BackendCountryPayload[]
 
       const countries: Country[] = payload.map((item) => ({
         name:         String(item.name ?? ''),
@@ -83,7 +113,13 @@ export async function fetchBackendCountries(): Promise<Country[]> {
         conf:         (item.conf ?? 'low') as Country['conf'],
         signals:      normalizeSignals(item.signals),
         history:      Array.isArray(item.history)
-                        ? item.history.map((h: any) => ({ y: Number(h.y), v: Number(h.v) }))
+                        ? item.history.map((h) => ({ y: Number(h.y), v: Number(h.v) }))
+                        : [],
+        ospiHistory:  Array.isArray(item.ospiHistory)
+                        ? item.ospiHistory.map((h) => ({
+                            y: Number(h.y),
+                            v: Number(h.v),
+                          }))
                         : [],
         urbanPct:     Number(item.urbanPct     ?? 0),
         densityKm2:   Number(item.densityKm2   ?? 0),
@@ -166,7 +202,7 @@ export function useCountries(): Country[] {
     return () => { _listeners.delete(listener) }
   }, [setSignalsAvailable])
 
-  return useMemo(() => _countries, [_countries.length])
+  return _countries
 }
 
 // ── useCountriesLoading — used only by the loading overlay ────────────────────
@@ -178,9 +214,6 @@ export function useCountriesLoading(): boolean {
   const [isLoading, setIsLoading] = useState(_isLoading)
 
   useEffect(() => {
-    // Sync immediately in case data already loaded before this hook mounted
-    setIsLoading(_isLoading)
-
     const listener: Listener = () => setIsLoading(_isLoading)
     _listeners.add(listener)
     return () => { _listeners.delete(listener) }

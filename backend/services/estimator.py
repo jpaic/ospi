@@ -132,6 +132,69 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
     return results
 
 
+def estimate_population_history_bulk(iso2_list: list[str]) -> dict[str, list[dict]]:
+    """Calculates compact yearly OSPI series using only exact same-year signals."""
+    if isinstance(iso2_list, str):
+        iso2_list = [iso2_list]
+
+    if not iso2_list:
+        return {}
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                WITH weights(signal_type, weight) AS (
+                    VALUES
+                        ('telecom', 0.25::numeric),
+                        ('electricity', 0.25::numeric),
+                        ('building', 0.20::numeric),
+                        ('mobility', 0.15::numeric),
+                        ('internet', 0.15::numeric)
+                ),
+                yearly AS (
+                    SELECT
+                        p.iso2,
+                        p.year,
+                        p.population,
+                        ROUND(
+                            (SUM(s.score * w.weight) / NULLIF(SUM(w.weight), 0))::numeric,
+                            1
+                        ) AS composite
+                    FROM populations p
+                    LEFT JOIN signals s
+                        ON s.iso2 = p.iso2
+                       AND s.year = p.year
+                       AND s.score IS NOT NULL
+                    LEFT JOIN weights w
+                        ON w.signal_type = s.signal_type
+                    WHERE p.iso2 = ANY(%s)
+                    GROUP BY p.iso2, p.year, p.population
+                )
+                SELECT
+                    iso2,
+                    year,
+                    CASE
+                        WHEN composite IS NULL THEN population
+                        ELSE ROUND((population * (0.8 + (composite / 100) * 0.4))::numeric, 1)
+                    END AS estimate
+                FROM yearly
+                ORDER BY iso2, year ASC
+                """,
+                (iso2_list,),
+            )
+            rows = cur.fetchall()
+
+    results: dict[str, list[dict]] = {iso2: [] for iso2 in iso2_list}
+    for iso2, year, estimate in rows:
+        results.setdefault(iso2, []).append({
+            "y": int(year),
+            "v": float(estimate),
+        })
+
+    return results
+
+
 # -----------------------------
 # BACKWARD COMPATIBILITY (IMPORTANT)
 # -----------------------------

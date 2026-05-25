@@ -1,6 +1,11 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from services.estimator import estimate_population, estimate_population_bulk
+from fastapi.middleware.gzip import GZipMiddleware
+from services.estimator import (
+    estimate_population,
+    estimate_population_bulk,
+    estimate_population_history_bulk,
+)
 from db.connection import get_conn
 from dotenv import load_dotenv
 import os
@@ -16,6 +21,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -184,6 +191,7 @@ def list_countries_full():
     all_metadata  = get_all_metadata()
     iso2_list     = sorted(all_metadata.keys())
     estimates     = estimate_population_bulk(iso2_list)
+    ospi_histories = estimate_population_history_bulk(iso2_list)
 
     results = []
     for iso2 in iso2_list:
@@ -208,6 +216,7 @@ def list_countries_full():
             "conf":         est.get("confidence") or "low",
             "signals":      build_signals(all_signals.get(iso2, {})),
             "history":      history,
+            "ospiHistory":  ospi_histories.get(iso2, []),
             "urbanPct":     meta["urbanPct"],
             "densityKm2":   meta["densityKm2"],
             "gdpPerCapita": meta["gdpPerCapita"],

@@ -77,12 +77,12 @@ export default function CountryDetail({ country: c }: Props) {
 
       // ── Trend chart ──
       // history: [{y: year, v: population_millions}] from DB, one row per year
-      // OSPI estimate is plotted as a single point appended after the last history year
+      // ospiHistory: exact-year estimates aligned to the population series
       const historyYears = c.history.map(h => String(h.y))
       const historyVals = c.history.map(h => parseFloat(h.v.toFixed(4)))
 
-      const lastHistoryYear = c.history.length > 0 ? c.history[c.history.length - 1].y : null
-      const ospiYear = lastHistoryYear ? String(lastHistoryYear) : 'OSPI'
+      const hasOspiHistory = c.ospiHistory.length > 0
+      const ospiByYear = new Map(c.ospiHistory.map(h => [h.y, parseFloat(h.v.toFixed(4))]))
       const ospiVal = parseFloat(c.ospi.toFixed(4))
 
       // Labels: all history years + one extra point for the OSPI estimate
@@ -90,9 +90,10 @@ export default function CountryDetail({ country: c }: Props) {
 
       const histDataset = [...historyVals]
 
-      // OSPI point sits only at the last year index, null everywhere else
-      const ospiDataset = c.history.map((_h, i) =>
-        i === c.history.length - 1 ? ospiVal : (null as number | null)
+      const ospiDataset = c.history.map((h, i) =>
+        hasOspiHistory
+          ? ospiByYear.get(h.y) ?? (null as number | null)
+          : i === c.history.length - 1 ? ospiVal : (null as number | null)
       )
 
       trendInst.current = new Chart(trendRef.current!, {
@@ -114,18 +115,15 @@ export default function CountryDetail({ country: c }: Props) {
               spanGaps: false,
             },
             {
-              // Dashed connector line from last history point to OSPI estimate
-              label: '',
-              data: histDataset.map((v, i) =>
-                i === histDataset.length - 1 ? ospiVal : null
-              ),
+              label: 'OSPI estimate',
+              data: ospiDataset,
               borderColor: noSignals
                 ? (isDark ? '#3f3f46' : '#d4d4d8')
                 : isPos ? '#1D9E75' : '#E24B4A',
               backgroundColor: 'transparent',
               borderWidth: 1.5,
               borderDash: [4, 4],
-              pointRadius: (ctx) => ctx.dataIndex === histDataset.length - 1 ? 5 : 0,
+              pointRadius: (ctx) => ctx.parsed.y === null ? 0 : 3,
               pointBackgroundColor: noSignals
                 ? (isDark ? '#3f3f46' : '#d4d4d8')
                 : isPos ? '#1D9E75' : '#E24B4A',
@@ -134,7 +132,7 @@ export default function CountryDetail({ country: c }: Props) {
                 : isPos ? '#1D9E75' : '#E24B4A',
               pointStyle: 'circle',
               fill: false,
-              tension: 0,
+              tension: 0.4,
               spanGaps: false,
             },
           ],
@@ -149,7 +147,6 @@ export default function CountryDetail({ country: c }: Props) {
               callbacks: {
                 label: ctx => {
                   if (ctx.parsed.y === null) return ''
-                  if (ctx.datasetIndex === 1 && ctx.dataIndex !== histDataset.length - 1) return ''
                   const label = ctx.datasetIndex === 0 ? 'Population' : 'OSPI estimate'
                   return ` ${label}: ${fmt(ctx.parsed.y as number)}`
                 },
@@ -250,7 +247,7 @@ export default function CountryDetail({ country: c }: Props) {
       radarInst.current?.destroy()
       barInst.current?.destroy()
     }
-  }, [c, noSignals])
+  }, [c, noSignals, isPos])
 
   return (
     <div

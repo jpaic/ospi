@@ -1,12 +1,16 @@
 import math
+from datetime import date
 import httpx
 from db.connection import get_conn
 from etl.utils.countries import get_valid_iso2_codes
 from psycopg2.extras import execute_values
 
+START_YEAR = 2010
+END_YEAR = date.today().year - 1
+
 WORLD_BANK_URL = (
     "https://api.worldbank.org/v2/country/all/indicator/"
-    "EG.USE.ELEC.KH.PC?format=json&mrnev=5&per_page=1000"
+    f"EG.USE.ELEC.KH.PC?format=json&date={START_YEAR}:{END_YEAR}&per_page=20000"
 )
 
 KWH_MIN = 100
@@ -35,7 +39,7 @@ def fetch_electricity_signals():
     results = {}
     skipped_not_valid = []
     skipped_no_value = []
-    skipped_older_year = []
+    skipped_duplicate_year = []
 
     for record in records:
         iso2 = record.get("country", {}).get("id")
@@ -56,8 +60,8 @@ def fetch_electricity_signals():
 
         year = int(year)
 
-        if iso2 in results and results[iso2]["year"] >= year:
-            skipped_older_year.append(f"{iso2} {year}")
+        if (iso2, year) in results:
+            skipped_duplicate_year.append(f"{iso2} {year}")
             continue
 
         safe_value = max(min(value, KWH_MAX), KWH_MIN)
@@ -67,23 +71,28 @@ def fetch_electricity_signals():
         score = round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
         score = min(max(score, 0), 100)
 
-        results[iso2] = {"raw_kwh": round(value, 1), "score": score, "year": year}
+        results[(iso2, year)] = {
+            "iso2": iso2,
+            "raw_kwh": round(value, 1),
+            "score": score,
+            "year": year,
+        }
 
     print(f"\n--- Skip breakdown ---")
     print(f"Kept:                  {len(results)}")
     print(f"Skipped (no value):    {len(skipped_no_value)}")
     print(f"Skipped (not valid):   {len(skipped_not_valid)}")
-    print(f"Skipped (older year):  {len(skipped_older_year)}")
-    print(f"Total accounted for:   {len(results) + len(skipped_no_value) + len(skipped_not_valid) + len(skipped_older_year)}")
+    print(f"Skipped (duplicate):   {len(skipped_duplicate_year)}")
+    print(f"Total accounted for:   {len(results) + len(skipped_no_value) + len(skipped_not_valid) + len(skipped_duplicate_year)}")
 
-    print(f"\nFetched {len(results)} countries")
-    return results
+    print(f"\nFetched {len(results)} country-year electricity rows")
+    return list(results.values())
 
 
-def store_electricity_signals(signals: dict[str, dict]):
+def store_electricity_signals(signals: list[dict]):
     rows = [
-        (iso2, data["raw_kwh"], data["score"], data["year"])
-        for iso2, data in signals.items()
+        (data["iso2"], data["raw_kwh"], data["score"], data["year"])
+        for data in signals
     ]
 
     with get_conn() as conn:

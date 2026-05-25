@@ -13,7 +13,7 @@ BASE                = "https://population.un.org/dataportalapi/api/v1"
 INDICATOR_TOTAL_POP = 49
 MEDIUM_VARIANT_ID   = 4   # UN WPP: 4=Medium, 5=High, 6=Low
 SEX_BOTH            = 3   # 1=Male, 2=Female, 3=Both sexes — required to avoid half-population rows
-START_YEAR          = 2018
+START_YEAR          = 2010
 END_YEAR            = 2024
 
 HEADERS = {"Authorization": f"Bearer {UN_API_TOKEN}"}
