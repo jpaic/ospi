@@ -2,17 +2,14 @@
 
 /**
  * lib/useCountries.ts
- *
- * Fetches the full Country dataset from the backend /countries/full endpoint.
- * No longer depends on the static unData.json baseline.
  */
 
 import { useEffect, useMemo, useState } from 'react'
 import { useDataSource } from './dataSource'
 import type { Country, SignalScores } from './types'
 
-const CACHE_KEY = 'ospi:countries:v2'   // bumped to bust old unData-based cache
-const CACHE_TTL = 24 * 60 * 60 * 1000  // 24 h
+const CACHE_KEY = 'ospi:countries:v2'
+const CACHE_TTL = 24 * 60 * 60 * 1000
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
@@ -34,9 +31,7 @@ function saveCachedCountries(countries: Country[]) {
   if (typeof window === 'undefined') return
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), countries }))
-  } catch {
-    // ignore quota errors
-  }
+  } catch {}
 }
 
 // ── Signal normalisation ──────────────────────────────────────────────────────
@@ -61,16 +56,14 @@ function normalizeSignals(
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
 let cachedCountries: Country[] | null = null
-let pendingPromise:  Promise<Country[]> | null = null
+let pendingPromise: Promise<Country[]> | null = null
 
 export async function fetchBackendCountries(): Promise<Country[]> {
   if (cachedCountries) return cachedCountries
-  if (pendingPromise)  return pendingPromise
+  if (pendingPromise) return pendingPromise
 
   const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/+$/, '')
-  if (!baseUrl) {
-    throw new Error('NEXT_PUBLIC_BACKEND_URL is not set')
-  }
+  if (!baseUrl) throw new Error('NEXT_PUBLIC_BACKEND_URL is not set')
 
   pendingPromise = (async () => {
     try {
@@ -86,7 +79,7 @@ export async function fetchBackendCountries(): Promise<Country[]> {
         lng:          Number(item.lng  ?? 0),
         region:       String(item.region ?? 'Unknown'),
         official:     Number(item.official ?? 0),
-        ospi:         Number(item.ospi     ?? item.official ?? 0),
+        ospi:         Number(item.ospi ?? item.official ?? 0),
         conf:         (item.conf ?? 'low') as Country['conf'],
         signals:      normalizeSignals(item.signals),
         history:      Array.isArray(item.history)
@@ -111,37 +104,87 @@ export async function fetchBackendCountries(): Promise<Country[]> {
   return pendingPromise
 }
 
-// ── Hook ──────────────────────────────────────────────────────────────────────
+// ── Shared reactive state so both hooks stay in sync ─────────────────────────
+// We store the raw state outside React so multiple hook instances share it.
+
+type Listener = () => void
+let _countries: Country[] = []
+let _isLoading = true
+const _listeners = new Set<Listener>()
+
+function notify() {
+  _listeners.forEach(fn => fn())
+}
+
+function setSharedCountries(c: Country[]) {
+  _countries = c
+  notify()
+}
+
+function setSharedLoading(v: boolean) {
+  _isLoading = v
+  notify()
+}
+
+// ── useCountries — backward-compatible: returns Country[] ─────────────────────
 
 export function useCountries(): Country[] {
   const { setSignalsAvailable } = useDataSource()
-  const [countries, setCountries] = useState<Country[]>([])
+  const [, rerender] = useState(0)
 
   useEffect(() => {
-    let cancelled = false
+    const listener: Listener = () => rerender(n => n + 1)
+    _listeners.add(listener)
 
-    // Serve cache instantly on mount so the UI isn't blank on reload
-    const cached = loadCachedCountries()
-    if (cached) {
-      setCountries(cached)
-      setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => v > 0)))
+    // Only kick off the fetch once (first hook instance)
+    if (_listeners.size === 1) {
+      const cached = loadCachedCountries()
+      if (cached) {
+        setSharedCountries(cached)
+        setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => v > 0)))
+        setSharedLoading(false)
+      }
+
+      fetchBackendCountries()
+        .then((fresh) => {
+          setSharedCountries(fresh)
+          saveCachedCountries(fresh)
+          setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => v > 0)))
+          setSharedLoading(false)
+        })
+        .catch(() => {
+          setSignalsAvailable(false)
+          setSharedLoading(false)
+        })
+    } else {
+      // Subsequent instances: sync signals availability from whatever's loaded
+      if (_countries.length > 0) {
+        setSignalsAvailable(_countries.some(c => Object.values(c.signals).some(v => v > 0)))
+      }
     }
 
-    fetchBackendCountries()
-      .then((fresh) => {
-        if (cancelled) return
-        setCountries(fresh)
-        saveCachedCountries(fresh)
-        setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => v > 0)))
-      })
-      .catch(() => {
-        if (cancelled) return
-        // Keep whatever is already displayed (cache or empty)
-        setSignalsAvailable(false)
-      })
-
-    return () => { cancelled = true }
+    return () => { _listeners.delete(listener) }
   }, [setSignalsAvailable])
 
-  return useMemo(() => countries, [countries])
+  return useMemo(() => _countries, [_countries.length])
+}
+
+// ── useCountriesLoading — used only by the loading overlay ────────────────────
+//
+// Returns true from mount until the very first batch of data (cache or network)
+// resolves. Flips to false exactly once and never goes back.
+
+export function useCountriesLoading(): boolean {
+  const [isLoading, setIsLoading] = useState(_isLoading)
+
+  useEffect(() => {
+    // Sync immediately in case data already loaded before this hook mounted
+    setIsLoading(_isLoading)
+
+    const listener: Listener = () => setIsLoading(_isLoading)
+    _listeners.add(listener)
+    return () => { _listeners.delete(listener) }
+  }, [])
+
+  return isLoading
 }

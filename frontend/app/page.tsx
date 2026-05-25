@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import { DataSourceProvider } from '@/lib/dataSource'
-import { useCountries, fetchBackendCountries } from '@/lib/useCountries'
+import { useCountries, useCountriesLoading, fetchBackendCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { sortByDivergence } from '@/lib/estimator'
 import { fmt, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
@@ -11,6 +11,7 @@ import type { Country } from '@/lib/types'
 import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
 import DefaultDashboard from '@/components/DefaultDashboard'
+import LoadingOverlay from '@/components/LoadingOverlay'
 
 const WorldMap = dynamic(() => import('@/components/WorldMap'), { ssr: false })
 
@@ -19,7 +20,10 @@ function OSPIInner() {
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
 
+  // useCountries() still returns Country[] — no breakage in any consumer
   const countries = useCountries()
+  // Separate hook just for the loading flag — only page.tsx needs this
+  const isLoading = useCountriesLoading()
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BACKEND_URL) {
@@ -45,96 +49,101 @@ function OSPIInner() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-white dark:bg-zinc-950 overflow-hidden">
+    <>
+      {/* Frosted-glass overlay — fades out the moment data arrives */}
+      <LoadingOverlay visible={isLoading} />
 
-      {/* ── Top bar ── */}
-      <header className="flex items-center gap-3 px-4 h-9 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-        <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-700 dark:text-zinc-300">
-          OSPI
-        </span>
-        <span className="text-[11px] text-zinc-300 dark:text-zinc-600">
-          Open Signal Population Index
-        </span>
+      <div className="flex flex-col h-screen bg-white dark:bg-zinc-950 overflow-hidden">
 
-        <div className="ml-auto flex items-center gap-4">
-          <span className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-            {countries.length} countries · 5 signals · UN WPP
+        {/* ── Top bar ── */}
+        <header className="flex items-center gap-3 px-4 h-9 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-700 dark:text-zinc-300">
+            OSPI
+          </span>
+          <span className="text-[11px] text-zinc-300 dark:text-zinc-600">
+            Open Signal Population Index
           </span>
 
-          {selected && (
-            <button
-              className="text-[9px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 uppercase tracking-wider transition-colors"
-              onClick={handleOverviewReset}
-              title="Back to overview"
-            >
-              ← overview
-            </button>
-          )}
-        </div>
-      </header>
+          <div className="ml-auto flex items-center gap-4">
+            <span className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
+              {countries.length} countries · 5 signals · UN WPP
+            </span>
 
-      {/* ── Body ── */}
-      <div className="flex flex-1 overflow-hidden">
-
-        <Sidebar
-          countries={filtered}
-          selected={selected}
-          onSelect={setSelected}
-          query={query}
-          onSearch={setQuery}
-        />
-
-        <main className="flex flex-1 overflow-hidden">
-
-          {/* Left panel */}
-          <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
-            {selected
-              ? <CountryDetail country={selected} />
-              : <DefaultDashboard />
-            }
+            {selected && (
+              <button
+                className="text-[9px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 uppercase tracking-wider transition-colors"
+                onClick={handleOverviewReset}
+                title="Back to overview"
+              >
+                ← overview
+              </button>
+            )}
           </div>
+        </header>
 
-          {/* Right map panel */}
-          <div
-            className="shrink-0 flex flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
-            style={{ width: 320 }}
-          >
-            <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-              <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
-                World map
-              </p>
-              {selected && (
-                <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">
-                  {selected.name}
-                </span>
-              )}
+        {/* ── Body ── */}
+        <div className="flex flex-1 overflow-hidden">
+
+          <Sidebar
+            countries={filtered}
+            selected={selected}
+            onSelect={setSelected}
+            query={query}
+            onSearch={setQuery}
+          />
+
+          <main className="flex flex-1 overflow-hidden">
+
+            {/* Left panel */}
+            <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
+              {selected
+                ? <CountryDetail country={selected} />
+                : <DefaultDashboard />
+              }
             </div>
 
-            <div style={{ width: 320, height: 320 }} className="shrink-0 overflow-hidden">
-              <WorldMap
-                countries={countries}
-                selected={selected}
-                onSelect={setSelected}
-                resetKey={mapResetKey}
-              />
-            </div>
-
+            {/* Right map panel */}
             <div
-              className="flex-1 overflow-y-auto border-t border-zinc-100 dark:border-zinc-800 p-3"
-              style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
+              className="shrink-0 flex flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
+              style={{ width: 320 }}
             >
-              {selected ? (
-                <QuickStats country={selected} />
-              ) : (
-                <AnomalyList countries={countries} onSelect={setSelected} />
-              )}
-            </div>
-          </div>
+              <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
+                <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
+                  World map
+                </p>
+                {selected && (
+                  <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">
+                    {selected.name}
+                  </span>
+                )}
+              </div>
 
-        </main>
+              <div style={{ width: 320, height: 320 }} className="shrink-0 overflow-hidden">
+                <WorldMap
+                  countries={countries}
+                  selected={selected}
+                  onSelect={setSelected}
+                  resetKey={mapResetKey}
+                />
+              </div>
+
+              <div
+                className="flex-1 overflow-y-auto border-t border-zinc-100 dark:border-zinc-800 p-3"
+                style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
+              >
+                {selected ? (
+                  <QuickStats country={selected} />
+                ) : (
+                  <AnomalyList countries={countries} onSelect={setSelected} />
+                )}
+              </div>
+            </div>
+
+          </main>
+        </div>
       </div>
-    </div>
+    </>
   )
 }
 
