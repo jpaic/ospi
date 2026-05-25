@@ -6,6 +6,13 @@ import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtGap, fmtPct } from '@/lib/fmt'
 import type { Chart as ChartType } from 'chart.js'
+import type { Country } from '@/lib/types'
+
+
+interface Props {
+  selected?: Country | null
+  onSelect?: (c: Country) => void
+}
 
 function calcDelta(c: { ospi: number; official: number }): number {
   return parseFloat(((c.ospi - c.official) / c.official * 100).toFixed(2))
@@ -23,7 +30,7 @@ type SortDir = 'asc' | 'desc'
 // canReset: next click will reset — show both arrows equally dim
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   // keep the active arrow fully lit; on canReset just dim the inactive one more
-  const upOp   = active && dir === 'asc'  ? 1 : 0.2
+  const upOp = active && dir === 'asc' ? 1 : 0.2
   const downOp = active && dir === 'desc' ? 1 : 0.2
   return (
     <span
@@ -58,16 +65,16 @@ function ThBtn({
   sortClicks: number
   onSort: (col: SortKey) => void
 }) {
-  const active   = sortKey === col
+  const active = sortKey === col
   // The direction shown in the icon must reflect THIS column's current state,
   // not the global sortDir (which belongs to whichever column is active).
-  const iconDir  = active ? sortDir : 'asc'
+  const iconDir = active ? sortDir : 'asc'
   const canReset = active && sortClicks === 2
   const tip = canReset
     ? `Click again to reset to default (A→Z)`
     : active
-    ? `Click to sort ${sortDir === 'asc' ? 'descending' : 'ascending'}`
-    : `Sort by ${label}`
+      ? `Click to sort ${sortDir === 'asc' ? 'descending' : 'ascending'}`
+      : `Sort by ${label}`
   return (
     <button
       onClick={() => onSort(col)}
@@ -85,7 +92,7 @@ function ThBtn({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function DefaultDashboard() {
+export default function DefaultDashboard({ selected, onSelect }: Props) {
   const countries = useCountries()
   const { noSignals } = useDataSource()
 
@@ -157,14 +164,14 @@ export default function DefaultDashboard() {
     let vb: number | string
 
     switch (sortKey) {
-      case 'name':    va = a.name;          vb = b.name;          break
-      case 'region':  va = a.region;        vb = b.region;        break
-      case 'official':va = a.official;      vb = b.official;      break
-      case 'ospi':    va = a.ospi;          vb = b.ospi;          break
-      case 'delta':   va = calcDelta(a);    vb = calcDelta(b);    break
-      case 'growthRate': va = a.growthRate; vb = b.growthRate;    break
-      case 'conf':    va = confRank(a.conf);vb = confRank(b.conf);break
-      default:        va = a.name;          vb = b.name;
+      case 'name': va = a.name; vb = b.name; break
+      case 'region': va = a.region; vb = b.region; break
+      case 'official': va = a.official; vb = b.official; break
+      case 'ospi': va = a.ospi; vb = b.ospi; break
+      case 'delta': va = calcDelta(a); vb = calcDelta(b); break
+      case 'growthRate': va = a.growthRate; vb = b.growthRate; break
+      case 'conf': va = confRank(a.conf); vb = confRank(b.conf); break
+      default: va = a.name; vb = b.name;
     }
 
     if (typeof va === 'string' && typeof vb === 'string') {
@@ -305,24 +312,24 @@ export default function DefaultDashboard() {
   // ── Stat cards ────────────────────────────────────────────────────────────
 
   const statCards = [
-    { label: 'Official world pop.',  value: fmtB(stats.totalOfficial / 1000), sub: 'Government census sum' },
-    { label: 'OSPI world estimate',  value: fmtB(stats.totalOspi / 1000),     sub: 'Signal-weighted model' },
-    { label: 'Global gap',           value: fmtGap(stats.totalOspi - stats.totalOfficial), sub: 'Absolute divergence', color: '#EF9F27' },
-    { label: 'Avg divergence',       value: `±${stats.avgDivergence.toFixed(2)}%`,          sub: 'Across all countries',  color: '#EF9F27' },
-    { label: 'High confidence',      value: `${stats.highConf}`,              sub: `of ${countries.length} countries`, color: '#1D9E75' },
-    { label: 'Low confidence',       value: `${stats.lowConf}`,               sub: 'Disputed or sparse',  color: '#E24B4A' },
+    { label: 'Official world pop.', value: fmtB(stats.totalOfficial / 1000), sub: 'Government census sum' },
+    { label: 'OSPI world estimate', value: fmtB(stats.totalOspi / 1000), sub: 'Signal-weighted model' },
+    { label: 'Global gap', value: fmtGap(stats.totalOspi - stats.totalOfficial), sub: 'Absolute divergence', color: '#EF9F27' },
+    { label: 'Avg divergence', value: `±${stats.avgDivergence.toFixed(2)}%`, sub: 'Across all countries', color: '#EF9F27' },
+    { label: 'High confidence', value: `${stats.highConf}`, sub: `of ${countries.length} countries`, color: '#1D9E75' },
+    { label: 'Low confidence', value: `${stats.lowConf}`, sub: 'Disputed or sparse', color: '#E24B4A' },
   ]
 
   // ── Column definitions ────────────────────────────────────────────────────
 
   const columns: { label: string; key: SortKey }[] = [
-    { label: 'Country',  key: 'name' },
-    { label: 'Region',   key: 'region' },
+    { label: 'Country', key: 'name' },
+    { label: 'Region', key: 'region' },
     { label: 'Official', key: 'official' },
-    { label: 'OSPI',     key: 'ospi' },
-    { label: 'Δ',        key: 'delta' },
-    { label: 'Growth',   key: 'growthRate' },
-    { label: 'Conf.',    key: 'conf' },
+    { label: 'OSPI', key: 'ospi' },
+    { label: 'Δ', key: 'delta' },
+    { label: 'Growth', key: 'growthRate' },
+    { label: 'Conf.', key: 'conf' },
   ]
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -482,8 +489,8 @@ export default function DefaultDashboard() {
               <div className="flex gap-3">
                 {[
                   { label: 'High', col: '#1D9E75' },
-                  { label: 'Med',  col: '#EF9F27' },
-                  { label: 'Low',  col: '#E24B4A' },
+                  { label: 'Med', col: '#EF9F27' },
+                  { label: 'Low', col: '#E24B4A' },
                 ].map(b => (
                   <span key={b.label} className="flex items-center gap-1 text-[9px]" style={{ color: b.col }}>
                     <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: b.col }} />
@@ -519,14 +526,23 @@ export default function DefaultDashboard() {
                   const d = calcDelta(c)
                   const isP = d >= 0
                   const col = noSignals ? '#a1a1aa' : confColor(c.conf)
+                  const isActive = selected?.name === c.name
+
                   return (
                     <tr
                       key={c.name}
-                      className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 ${i % 2 === 0 ? '' : 'bg-white/50 dark:bg-zinc-950/30'}`}
+                      className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 cursor-pointer transition-colors${isActive
+                        ? 'bg-zinc-100 dark:bg-zinc-800/70'
+                        : i % 2 === 0
+                          ? 'hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
+                          : 'bg-white/50 dark:bg-zinc-950/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
+                        }`}
+                      onClick={() => onSelect?.(c)}
                     >
                       <td className="px-3 py-1.5">
                         <div className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: col }} />
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0 ring-1 ring-offset-1 ring-transparent"
+                            style={{ background: col, ...(isActive ? { ringColor: col } : {}) }} />
                           <span className="font-medium text-zinc-700 dark:text-zinc-300">{c.name}</span>
                         </div>
                       </td>

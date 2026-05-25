@@ -99,7 +99,7 @@ function OSPIInner() {
             <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
               {selected
                 ? <CountryDetail country={selected} />
-                : <DefaultDashboard />
+                : <DefaultDashboard selected={selected} onSelect={setSelected} />
               }
             </div>
 

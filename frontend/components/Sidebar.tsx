@@ -53,9 +53,9 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         <div className="grid grid-cols-2 gap-1.5 mb-2">
           {[
             { label: 'Official total', value: fmtB(stats.totalOfficial / 1000) },
-            { label: 'OSPI total',     value: fmtB(stats.totalOspi / 1000)     },
+            { label: 'OSPI total', value: fmtB(stats.totalOspi / 1000) },
             { label: 'Avg divergence', value: `±${stats.avgDivergence.toFixed(2)}%` },
-            { label: 'Countries',      value: String(allCountries.length)       },
+            { label: 'Countries', value: String(allCountries.length) },
           ].map(s => (
             <div key={s.label} className="bg-zinc-50 dark:bg-zinc-900 rounded px-2 py-1.5">
               <p className="text-[9px] text-zinc-400 uppercase tracking-wider">{s.label}</p>
@@ -72,14 +72,14 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           </div>
           <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
             <div className="h-full bg-emerald-500" style={{ width: `${(stats.highConf / allCountries.length) * 100}%` }} />
-            <div className="h-full bg-amber-400"   style={{ width: `${((allCountries.length - stats.highConf - stats.lowConf) / allCountries.length) * 100}%` }} />
-            <div className="h-full bg-red-500"     style={{ width: `${(stats.lowConf / allCountries.length) * 100}%` }} />
+            <div className="h-full bg-amber-400" style={{ width: `${((allCountries.length - stats.highConf - stats.lowConf) / allCountries.length) * 100}%` }} />
+            <div className="h-full bg-red-500" style={{ width: `${(stats.lowConf / allCountries.length) * 100}%` }} />
           </div>
           <div className="flex gap-3 mt-1">
             {[
-              { label: `High ${stats.highConf}`,                                        col: 'text-emerald-500' },
-              { label: `Med ${allCountries.length - stats.highConf - stats.lowConf}`,   col: 'text-amber-500'  },
-              { label: `Low ${stats.lowConf}`,                                          col: 'text-red-500'    },
+              { label: `High ${stats.highConf}`, col: 'text-emerald-500' },
+              { label: `Med ${allCountries.length - stats.highConf - stats.lowConf}`, col: 'text-amber-500' },
+              { label: `Low ${stats.lowConf}`, col: 'text-red-500' },
             ].map(b => (
               <span key={b.label} className={`text-[9px] font-medium ${b.col}`}>{b.label}</span>
             ))}
@@ -89,16 +89,26 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         {/* Search */}
         <div className="relative">
           <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
           </svg>
           <input
             type="text"
             value={query}
             onChange={e => onSearch(e.target.value)}
             placeholder="Filter countries…"
-            className="w-full text-xs pl-6 pr-2 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-300 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+            className="w-full text-xs pl-6 pr-6 py-1.5 rounded border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 placeholder:text-zinc-300 dark:placeholder:text-zinc-600 focus:outline-none focus:ring-1 focus:ring-emerald-500"
           />
-        </div>
+          {query && (
+            <button
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-zinc-300 hover:text-zinc-500 dark:text-zinc-600 dark:hover:text-zinc-400 transition-colors"
+              onClick={() => onSearch('')}
+              title="Clear search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M18 6L6 18M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+      </div>
       </div>
 
       {/* ── Sort hint ── */}
@@ -113,13 +123,13 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
       >
         {countries.map(c => {
-          const delta    = deltaStr(c)
-          const isPos    = c.ospi >= c.official
+          const delta = deltaStr(c)
+          const isPos = c.ospi >= c.official
           const isActive = selected?.name === c.name
-          const hasReg   = c.regions.length > 0
-          const regOpen  = expandedRegions === c.name
-          const divAbs   = Math.abs(c.ospi - c.official)
-          const avgSig   = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+          const hasReg = c.regions.length > 0
+          const regOpen = expandedRegions === c.name
+          const divAbs = Math.abs(c.ospi - c.official)
+          const avgSig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
 
           return (
             <li key={c.name} className="border-b border-zinc-50 dark:border-zinc-900">
@@ -185,7 +195,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
                 <ul className="bg-zinc-50 dark:bg-zinc-900/60 border-t border-zinc-100 dark:border-zinc-800">
                   {c.regions.map(r => {
                     const rDeltaPct = ((r.ospi - r.pop) / r.pop * 100).toFixed(2)
-                    const rPos      = r.ospi >= r.pop
+                    const rPos = r.ospi >= r.pop
                     return (
                       <li
                         key={r.name}
@@ -217,6 +227,6 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           )
         })}
       </ul>
-    </aside>
+    </aside >
   )
 }
