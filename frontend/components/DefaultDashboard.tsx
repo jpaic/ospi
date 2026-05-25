@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
@@ -22,6 +22,7 @@ function calcDelta(c: { ospi: number; official: number }): number {
 
 type SortKey = 'name' | 'region' | 'official' | 'ospi' | 'delta' | 'growthRate' | 'conf'
 type SortDir = 'asc' | 'desc'
+type ScatterPoint = { x: number; y: number; label: string; color: string }
 
 // ─── Sort icon (chevrons — industry standard) ─────────────────────────────────
 
@@ -133,22 +134,31 @@ export default function DefaultDashboard({ selected, onSelect }: Props) {
     }
   }
 
-  const stats = globalStats(countries)
+  const stats = useMemo(() => globalStats(countries), [countries])
 
-  const topDivergence = [...countries]
-    .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
-    .slice(0, 8)
+  const topDivergence = useMemo(
+    () => [...countries]
+      .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
+      .slice(0, 8),
+    [countries],
+  )
 
-  const declining = [...countries]
-    .filter(c => c.growthRate < 0)
-    .sort((a, b) => {
-      const score = (c: { growthRate: number; official: number }) =>
-        c.growthRate * Math.log10(Math.max(c.official, 0.1))
-      return score(a) - score(b)
-    })
-    .slice(0, 8)
+  const declining = useMemo(
+    () => [...countries]
+      .filter(c => c.growthRate < 0)
+      .sort((a, b) => {
+        const score = (c: { growthRate: number; official: number }) =>
+          c.growthRate * Math.log10(Math.max(c.official, 0.1))
+        return score(a) - score(b)
+      })
+      .slice(0, 8),
+    [countries],
+  )
 
-  const fastest = [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4)
+  const fastest = useMemo(
+    () => [...countries].sort((a, b) => b.growthRate - a.growthRate).slice(0, 4),
+    [countries],
+  )
 
   // ── Sorted table data ──────────────────────────────────────────────────────
 
@@ -159,32 +169,59 @@ export default function DefaultDashboard({ selected, onSelect }: Props) {
     return 0 // 'low', 'lo', unknown
   }
 
-  const sortedRows = [...countries].sort((a, b) => {
-    let va: number | string
-    let vb: number | string
+  const sortedRows = useMemo(
+    () => [...countries].sort((a, b) => {
+      let va: number | string
+      let vb: number | string
 
-    switch (sortKey) {
-      case 'name': va = a.name; vb = b.name; break
-      case 'region': va = a.region; vb = b.region; break
-      case 'official': va = a.official; vb = b.official; break
-      case 'ospi': va = a.ospi; vb = b.ospi; break
-      case 'delta': va = calcDelta(a); vb = calcDelta(b); break
-      case 'growthRate': va = a.growthRate; vb = b.growthRate; break
-      case 'conf': va = confRank(a.conf); vb = confRank(b.conf); break
-      default: va = a.name; vb = b.name;
-    }
+      switch (sortKey) {
+        case 'name': va = a.name; vb = b.name; break
+        case 'region': va = a.region; vb = b.region; break
+        case 'official': va = a.official; vb = b.official; break
+        case 'ospi': va = a.ospi; vb = b.ospi; break
+        case 'delta': va = calcDelta(a); vb = calcDelta(b); break
+        case 'growthRate': va = a.growthRate; vb = b.growthRate; break
+        case 'conf': va = confRank(a.conf); vb = confRank(b.conf); break
+        default: va = a.name; vb = b.name;
+      }
 
-    if (typeof va === 'string' && typeof vb === 'string') {
-      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
+      if (typeof va === 'string' && typeof vb === 'string') {
+        return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va)
+      }
+      return sortDir === 'asc'
+        ? (va as number) - (vb as number)
+        : (vb as number) - (va as number)
+    }),
+    [countries, sortDir, sortKey],
+  )
+
+  const scatterPoints = useMemo(
+    () => countries.map(c => ({
+      x: parseFloat((Object.values(c.signals).reduce((a, b) => a + b, 0) / 5).toFixed(2)),
+      y: parseFloat(Math.abs(calcDelta(c)).toFixed(2)),
+      label: c.name,
+      color: confColor(c.conf),
+    })),
+    [countries],
+  )
+
+  const [chartsReady, setChartsReady] = useState(false)
+
+  useEffect(() => {
+    const start = () => setChartsReady(true)
+    const idle = window.requestIdleCallback?.(start, { timeout: 500 })
+    const timer = idle == null ? window.setTimeout(start, 80) : null
+
+    return () => {
+      if (idle != null) window.cancelIdleCallback(idle)
+      if (timer != null) window.clearTimeout(timer)
     }
-    return sortDir === 'asc'
-      ? (va as number) - (vb as number)
-      : (vb as number) - (va as number)
-  })
+  }, [countries])
 
   // ── Chart init ────────────────────────────────────────────────────────────
 
   useEffect(() => {
+    if (!chartsReady) return
     if (!barRef.current || !scatterRef.current) return
 
     const init = async () => {
@@ -259,15 +296,11 @@ export default function DefaultDashboard({ selected, onSelect }: Props) {
         data: {
           datasets: [{
             label: 'Countries',
-            data: countries.map(c => ({
-              x: parseFloat((Object.values(c.signals).reduce((a, b) => a + b, 0) / 5).toFixed(2)),
-              y: parseFloat(Math.abs(calcDelta(c)).toFixed(2)),
-              label: c.name,
-            })),
-            backgroundColor: countries.map(c =>
+            data: scatterPoints,
+            backgroundColor: scatterPoints.map(p =>
               noSignals
                 ? (isDark ? 'rgba(113,113,122,0.3)' : 'rgba(161,161,170,0.3)')
-                : confColor(c.conf) + 'bb'
+                : p.color + 'bb'
             ),
             pointRadius: 5,
             pointHoverRadius: 7,
@@ -280,8 +313,8 @@ export default function DefaultDashboard({ selected, onSelect }: Props) {
             tooltip: {
               ...tooltipBase,
               callbacks: {
-                label: (ctx: any) => {
-                  const d = ctx.raw as any
+                label: (ctx) => {
+                  const d = ctx.raw as ScatterPoint
                   return ` ${d.label}  sig:${d.x.toFixed(2)}  div:${d.y.toFixed(2)}%`
                 },
               },
@@ -307,7 +340,7 @@ export default function DefaultDashboard({ selected, onSelect }: Props) {
 
     init()
     return () => { barInst.current?.destroy(); scatInst.current?.destroy() }
-  }, [countries, noSignals])
+  }, [chartsReady, noSignals, scatterPoints, topDivergence])
 
   // ── Stat cards ────────────────────────────────────────────────────────────
 
