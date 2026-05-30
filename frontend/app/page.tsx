@@ -20,14 +20,12 @@ function OSPIInner() {
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
 
-  // useCountries() still returns Country[] — no breakage in any consumer
   const countries = useCountries()
-  // Separate hook just for the loading flag — only page.tsx needs this
   const isLoading = useCountriesLoading()
 
   useEffect(() => {
     if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-      fetchBackendCountries().catch(() => { })
+      fetchBackendCountries().catch(() => {})
     }
   }, [])
 
@@ -50,7 +48,6 @@ function OSPIInner() {
 
   return (
     <>
-      {/* Frosted-glass overlay — fades out the moment data arrives */}
       <LoadingOverlay visible={isLoading} />
 
       <div className="flex flex-col h-screen bg-white dark:bg-zinc-950 overflow-hidden">
@@ -66,8 +63,17 @@ function OSPIInner() {
           </span>
 
           <div className="ml-auto flex items-center gap-4">
-            <span className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-              {countries.length} countries · 5 signals · UN WPP
+            <span suppressHydrationWarning className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
+              {countries.length} countries · 5 signals · UN WPP ·{' '}
+              <a
+                href="https://github.com/jpaic/ospi"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
+              >
+                Github
+              </a>
+              {' '}· ETL: 2024
             </span>
 
             {selected && (
