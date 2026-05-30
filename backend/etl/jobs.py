@@ -1,6 +1,7 @@
 from etl.signals.metadata import fetch_metadata_signals, store_metadata_signals
 from etl.signals.population import fetch_population_signals, store_population_signals
 from etl.signals.electricity import fetch_electricity_signals, store_electricity_signals
+from etl.signals.telecom import fetch_telecom_signals, store_telecom_signals
 from db.connection import get_conn
 
 
@@ -53,9 +54,19 @@ def run_electricity():
         store_electricity_signals(data)
     print("Done.\n")
 
+def run_telecom():
+    print("Running telecom ETL...")
+    data = fetch_telecom_signals()
+    if data:
+        clear_signal_type("telecom")
+        store_telecom_signals(data)
+    print("Done.\n")
+
 
 
 if __name__ == "__main__":
     run_population()
     run_metadata()
     run_electricity()
+    run_telecom()
+    print("ETL jobs completed.")
