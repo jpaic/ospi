@@ -15,7 +15,6 @@ WORLDBANK_BASE      = "https://api.worldbank.org/v2"
 
 INDICATOR_URBAN_PCT = 2   # UN WPP: urban population percentage
 MEDIUM_VARIANT_ID   = 4   # UN WPP: 4=Medium, 5=High, 6=Low
-SEX_BOTH            = 3   # 1=Male, 2=Female, 3=Both sexes
 REFERENCE_YEAR      = 2024
 
 CONCURRENCY         = 8  # max simultaneous in-flight requests
@@ -104,8 +103,6 @@ async def fetch_urban_pct_async(
     rows = data.get("data", data if isinstance(data, list) else [])
     for row in rows:
         if row.get("variantId") != MEDIUM_VARIANT_ID:
-            continue
-        if row.get("sexId") != SEX_BOTH:
             continue
         value = row.get("value")
         if value is not None:
