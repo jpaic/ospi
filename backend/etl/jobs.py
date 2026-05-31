@@ -3,6 +3,7 @@ from etl.signals.population import fetch_population_signals, store_population_si
 from etl.signals.electricity import fetch_electricity_signals, store_electricity_signals
 from etl.signals.telecom import fetch_telecom_signals, store_telecom_signals
 from etl.signals.internet import fetch_internet_signals, store_internet_signals
+from etl.signals.building import fetch_building_signals, store_building_signals
 from db.connection import get_conn
 
 
@@ -71,6 +72,14 @@ def run_internet():
         store_internet_signals(data)
     print("Done.\n")
 
+def run_building():
+    print("Running building-density ETL...")
+    data = fetch_building_signals()
+    if data:
+        clear_signal_type("building")
+        store_building_signals(data)
+    print("Done.\n")
+
 
 if __name__ == "__main__":
     run_population()
@@ -78,4 +87,5 @@ if __name__ == "__main__":
     run_electricity()
     run_telecom()
     run_internet()
+    run_building()
     print("ETL jobs completed.")
