@@ -19,7 +19,7 @@ ETL (Python)  →  PostgreSQL  →  FastAPI backend  →  Next.js frontend
 ```
 
 - **ETL layer** fetches raw signal data per country per year, normalises to log-scale [0, 100] scores, and stores them alongside official UN population figures.
-- **Ridge regression model** trains on high-confidence UN data using per-feature penalties: strong signals (telecom, land area) carry the prediction, weak signals (building, mobility, internet) are regularised toward zero. Five-fold cross-validation produces out-of-fold residuals and CV R² as a guard against overfitting.
+- **Ridge regression model** trains on high-confidence UN data using per-feature penalties: strong signals (telecom, land area) carry the prediction, weak signals (building, mobility, internet) are regularised toward zero. Continent-level bias adjustments are learned from UN sub-region metadata. Five-fold cross-validation produces out-of-fold residuals and CV R² as a guard against overfitting.
 - **Estimator** applies the trained model to any country with sufficient signal coverage, returning an estimate, confidence tier (high / med / low), and signal-by-signal breakdown.
 - **Frontend** renders an interactive world map with per-country detail panels, trend charts, signal breakdowns, an ML model-status dashboard, and a territory filter to exclude non-sovereign entities.
 
@@ -63,10 +63,10 @@ World Bank country list (used to filter valid sovereign states and exclude regio
 
 ## Model
 
-The model is a Ridge (L2-regularised) linear regression with per-feature penalty:
+The model is a Ridge (L2-regularised) linear regression with per-feature penalty. Signal scores, land area, signal count, and continent dummies are all included as features:
 
 ```
-log(population)  =  intercept  +  Σ wᵢ · signal_scoreᵢ  +  w_area · log(area_km²)
+log(population)  =  intercept  +  Σ wᵢ · signal_scoreᵢ  +  w_area · log(area_km²)  +  w_sig · signal_count  +  Σ w_c · continent_c
 ```
 
 All features are standardised (zero mean, unit variance) during training; the scaler parameters are persisted alongside the coefficients so the estimator reproduces the exact same transform at inference time.
@@ -83,6 +83,8 @@ Each feature receives its own penalty α to reflect its predictive strength:
 | Mobility | 10.0 | Heavy shrinkage — effectively pruned |
 | Internet | 10.0 | Heavy shrinkage — effectively pruned |
 | log(area_km²) | 1e-6 | Effectively unregularised — size anchor |
+| signal_count | 0.1 | Mild shrinkage — useful when coverage varies |
+| Continent dummies (4) | 1.0 | Mild regularisation — Europe is the reference level |
 
 The closed-form solution penalises each feature independently:
 
@@ -90,15 +92,17 @@ The closed-form solution penalises each feature independently:
 ŵ = (XᵀX + diag(α))⁻¹ Xᵀy
 ```
 
+### Continent adjustment
+
+UN sub-regions are mapped to five continents (Africa, Americas, Asia, Europe, Oceania) and one-hot encoded with Europe dropped as the reference level. At inference, the estimator looks up the country's UN sub-region, maps it to a continent, and applies the learned continent-level bias stored in `region_coefs` (JSONB in `model_weights`).
+
 ### Performance
 
 | Metric | Value |
 |---|---|
-| In-sample R² | 0.9785 |
-| 5-fold CV R² | 0.9755 |
+| In-sample R² | 0.9801 |
+| 5-fold CV R² | 0.9756 |
 | Training countries | 148 |
-| Median residual (log) | 0.145 |
-| Mean residual (log) | 0.193 |
 
 ### Signal normalisation
 
@@ -114,18 +118,18 @@ Raw signal values are log-transformed and min-max scaled to a [0, 100] score per
 
 ### Confidence tiers
 
-A country's confidence depends on the number of available signals:
+A country's confidence depends on signal coverage and, when available, its out-of-fold residual:
 
-| Signals available | Confidence |
-|---|---|
-| 5 of 5 | `high` |
-| 3–4 | `med` |
-| 1–2 | `low` |
-| 0 | No estimate |
+| Coverage | With residual | Without residual |
+|---|---|---|
+| ≥ 0.8 | `high` if residual < 0.10, else `med` | `high` |
+| ≥ 0.6 | `med` if residual < 0.25, else `low` | `med` |
+| ≥ 0.4 | `low` | `low` |
+| < 0.4 | `low` | `low` |
 
 ### Fallback for missing data
 
-Countries with gaps in signal coverage use training-set mean imputation for missing features. If all signals are missing, no estimate is returned.
+Countries with gaps in signal coverage impute missing features using the training-set scaled mean (zero after standardisation, which is equivalent to contributing nothing to the log estimate). On the inference side the same scaler mean is used, so missing signals produce no bias. If all signals are missing, no estimate is returned.
 
 ---
 
