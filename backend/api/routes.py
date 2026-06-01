@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from services.estimator import (
@@ -148,6 +148,20 @@ def build_signals(signals: dict) -> dict:
     }
 
 
+def get_latest_model_info() -> dict | None:
+    """Returns the most recent model_weights row as a dict, or None."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [desc[0] for desc in cur.description]
+            return dict(zip(cols, row))
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/countries")
@@ -158,20 +172,20 @@ def list_countries():
     estimates   = estimate_population_bulk(iso2_list)
 
     print(f"signals: {len(all_signals)}, pops: {len(all_pops)}, estimates: {len(estimates)}")
-    no_official = [k for k, v in estimates.items() if v and v["official"] is None]
+    no_official = [k for k, v in estimates.items() if v and v.get("official") is None]
     print(f"Filtered out (no official): {no_official[:10]}")
 
     results = []
     for iso2 in iso2_list:
         est = estimates.get(iso2)
-        if not est or est["official"] is None:
+        if not est or est.get("official") is None:
             continue
         results.append({
             "iso2":             iso2,
             "official":         est["official"],
             "ospi":             est["estimate"],
             "conf":             est["confidence"],
-            "composite_signal": est["composite_signal"],
+            "composite_signal": est.get("composite_signal"),
             "signals":          build_signals(all_signals.get(iso2, {})),
         })
     return results
@@ -205,6 +219,9 @@ def list_countries_full():
         if official is None:
             continue
 
+        # v2 estimate is census-free; fall back to official if model not ready
+        ospi_estimate = est.get("estimate") or official
+
         results.append({
             "name":         meta["name"],
             "iso":          iso2,
@@ -212,7 +229,7 @@ def list_countries_full():
             "lng":          meta["lng"],
             "region":       meta["region"],
             "official":     official,
-            "ospi":         est.get("estimate") or official,
+            "ospi":         ospi_estimate,
             "conf":         est.get("confidence") or "low",
             "signals":      build_signals(all_signals.get(iso2, {})),
             "history":      history,
@@ -222,6 +239,8 @@ def list_countries_full():
             "gdpPerCapita": meta["gdpPerCapita"],
             "growthRate":   calc_growth_rate(history),
             "regions":      [],
+            # v2 extras (consumed by frontend if it wants them)
+            "signalCoverage": est.get("signal_coverage"),
         })
 
     return results
@@ -231,7 +250,7 @@ def list_countries_full():
 def get_country(iso2: str):
     iso2 = iso2.upper()
     est  = estimate_population(iso2)
-    if est["official"] is None:
+    if not est or est.get("official") is None:
         raise HTTPException(status_code=404, detail=f"No data found for {iso2}")
     signals = get_signals_for_country(iso2)
     return {
@@ -239,6 +258,138 @@ def get_country(iso2: str):
         "official":         est["official"],
         "ospi":             est["estimate"],
         "conf":             est["confidence"],
-        "composite_signal": est["composite_signal"],
+        "composite_signal": est.get("composite_signal"),
+        "signal_coverage":  est.get("signal_coverage"),
         "signals":          build_signals(signals),
     }
+
+
+# ── Model status ──────────────────────────────────────────────────────────────
+
+@app.get("/model/status")
+def model_status():
+    """
+    Returns info about the currently active model.
+    Consumed by the frontend ModelStatus panel.
+    """
+    model = get_latest_model_info()
+    if not model:
+        return {
+            "trained":    False,
+            "model_id":   None,
+            "trained_at": None,
+            "r_squared":  None,
+            "n_training": None,
+            "lambda":     None,
+            "mode":       "v1_fallback",
+        }
+
+    return {
+        "trained":    True,
+        "model_id":   model["id"],
+        "trained_at": str(model["trained_at"]),
+        "r_squared":  model.get("r_squared"),
+        "n_training": model.get("n_training"),
+        "lambda":     model.get("lambda"),
+        "coefficients": {
+            "intercept":   model.get("intercept"),
+            "telecom":     model.get("telecom"),
+            "electricity": model.get("electricity"),
+            "building":    model.get("building"),
+            "mobility":    model.get("mobility"),
+            "internet":    model.get("internet"),
+        },
+        "mode": "v2_regression",
+    }
+
+
+# ── Admin endpoints ───────────────────────────────────────────────────────────
+
+@app.post("/admin/retrain")
+async def admin_retrain(request: Request, background_tasks: BackgroundTasks):
+    """
+    Triggers a full model retrain.
+    Protected by X-Admin-Token header (shared secret from ADMIN_TOKEN env var).
+
+    Runs in the background so the HTTP response returns immediately.
+    Poll GET /model/status to check when the new model is live.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    def _do_retrain():
+        from etl.jobs import run_model_training
+        try:
+            result = run_model_training()
+            print(f"[retrain] Background job completed: {result}")
+        except Exception as e:
+            print(f"[retrain] Background job failed: {e}")
+
+    background_tasks.add_task(_do_retrain)
+    return {"status": "accepted", "message": "Retrain job queued. Poll /model/status for progress."}
+
+
+@app.post("/admin/retrain/sync")
+async def admin_retrain_sync(request: Request):
+    """
+    Synchronous retrain — waits for completion and returns full results.
+    Useful for CLI / CI pipelines. Protected by X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        from etl.jobs import run_model_training
+        result = run_model_training()
+        return {"status": "ok", **result}
+    except RuntimeError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Training failed: {e}")
+
+
+@app.get("/admin/model-health")
+async def admin_model_health(request: Request):
+    """
+    Detailed model health report.  Protected by X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from etl.training.evaluate import model_health_report
+    return model_health_report()
+
+
+@app.get("/admin/model-diagnostics")
+async def admin_model_diagnostics(request: Request):
+    """
+    Cross-validation diagnostics and feature importance.  Protected by X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from etl.training.evaluate import run_cross_val_diagnostics, compute_feature_importance, coverage_distribution
+    return {
+        "cross_validation": run_cross_val_diagnostics(),
+        "feature_importance": compute_feature_importance(),
+        "coverage": coverage_distribution(),
+    }
+
+
+@app.post("/admin/apply-patches")
+async def admin_apply_patches(request: Request):
+    """
+    Applies the model_schema_patch.sql and source_confidence_patch.sql.
+    Idempotent — safe to call multiple times.  Protected by X-Admin-Token.
+    """
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    from etl.jobs import apply_schema_patches
+    apply_schema_patches()
+    return {"status": "ok", "message": "Schema patches applied"}

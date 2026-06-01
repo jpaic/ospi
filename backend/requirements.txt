@@ -3,3 +3,5 @@ uvicorn
 psycopg2-binary
 httpx
 python-dotenv
+scikit-learn>=1.4
+numpy>=1.26
