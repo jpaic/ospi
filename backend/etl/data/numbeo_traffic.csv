@@ -1,0 +1,219 @@
+iso2,name,raw_traffic_index,urban_pct,score,source
+AD,Andorra,88.7,88.7,65.4,estimated_urban
+AE,United Arab Emirates,168.0,85.4,72.1,numbeo
+AF,Afghanistan,25.3,25.3,70.3,estimated_urban
+AG,Antigua and Barbuda,24.6,24.6,70.4,estimated_urban
+AL,Albania,111.6,57.5,61.7,numbeo
+AM,Armenia,99.6,65.4,58.8,numbeo
+AO,Angola,68.3,68.3,67.0,estimated_urban
+AR,Argentina,177.0,92.0,73.5,numbeo
+AS,American Samoa,82.2,82.2,65.9,estimated_urban
+AT,Austria,74.6,68.8,51.4,numbeo
+AU,Australia,170.5,87.2,72.5,numbeo
+AW,Aruba,61.9,61.9,67.5,estimated_urban
+AZ,Azerbaijan,159.6,58.4,70.8,numbeo
+BA,Bosnia and Herzegovina,90.4,50.5,56.3,numbeo
+BB,Barbados,59.3,59.3,67.7,estimated_urban
+BD,Bangladesh,249.1,31.4,82.2,numbeo
+BE,Belgium,126.3,87.4,64.8,numbeo
+BF,Burkina Faso,26.8,26.8,70.2,estimated_urban
+BG,Bulgaria,98.6,73.3,58.5,numbeo
+BH,Bahrain,100.0,100.0,64.6,estimated_urban
+BI,Burundi,21.1,21.1,70.6,estimated_urban
+BJ,Benin,50.2,50.2,68.4,estimated_urban
+BM,Bermuda,100.0,100.0,64.6,estimated_urban
+BN,Brunei Darussalam,74.8,74.8,66.5,estimated_urban
+BO,Bolivia,70.3,70.3,66.9,estimated_urban
+BR,Brazil,170.3,87.1,72.5,numbeo
+BS,"Bahamas, The",81.5,81.5,66.0,estimated_urban
+BT,Bhutan,40.3,40.3,69.2,estimated_urban
+BW,Botswana,66.5,66.5,67.1,estimated_urban
+BY,Belarus,112.3,78.1,61.8,numbeo
+BZ,Belize,42.4,42.4,69.0,estimated_urban
+CA,Canada,139.1,82.2,67.3,numbeo
+CD,"Congo, Dem. Rep.",43.6,43.6,68.9,estimated_urban
+CF,Central African Republic,42.9,42.9,69.0,estimated_urban
+CG,"Congo, Rep.",63.6,63.6,67.4,estimated_urban
+CH,Switzerland,125.9,84.2,64.7,numbeo
+CI,Cote d'Ivoire,52.3,52.3,68.2,estimated_urban
+CL,Chile,130.5,88.5,65.7,numbeo
+CM,Cameroon,54.6,54.6,68.1,estimated_urban
+CN,China,145.8,64.7,68.5,numbeo
+CO,Colombia,196.6,77.8,76.1,numbeo
+CR,Costa Rica,301.0,78.0,87.0,numbeo
+CU,Cuba,77.1,77.1,66.3,estimated_urban
+CV,Cabo Verde,74.2,74.2,66.6,estimated_urban
+CW,Curacao,91.4,91.4,65.2,estimated_urban
+CY,Cyprus,109.4,66.7,61.2,numbeo
+CZ,Czechia,87.9,72.7,55.6,numbeo
+DE,Germany,96.1,81.6,57.8,numbeo
+DJ,Djibouti,72.3,72.3,66.7,estimated_urban
+DK,Denmark,87.9,88.3,55.6,numbeo
+DM,Dominica,72.3,72.3,66.7,estimated_urban
+DO,Dominican Republic,72.9,72.9,66.7,estimated_urban
+DZ,Algeria,73.6,73.6,66.6,estimated_urban
+EC,Ecuador,156.7,63.1,70.3,numbeo
+EE,Estonia,73.1,70.2,50.8,numbeo
+EG,"Egypt, Arab Rep.",225.9,42.6,79.7,numbeo
+ER,Eritrea,35.0,35.0,69.6,estimated_urban
+ES,Spain,95.8,79.8,57.8,numbeo
+ET,Ethiopia,22.1,22.1,70.6,estimated_urban
+FI,Finland,77.6,73.4,52.4,numbeo
+FJ,Fiji,57.7,57.7,67.8,estimated_urban
+FM,"Micronesia, Fed. Sts.",22.4,22.4,70.5,estimated_urban
+FO,Faroe Islands,38.8,38.8,69.3,estimated_urban
+FR,France,125.8,78.7,64.7,numbeo
+GA,Gabon,90.8,90.8,65.3,estimated_urban
+GB,United Kingdom,131.6,83.0,65.9,numbeo
+GD,Grenada,36.3,36.3,69.5,estimated_urban
+GE,Georgia,127.4,59.4,65.0,numbeo
+GH,Ghana,56.7,56.7,67.9,estimated_urban
+GI,Gibraltar,100.0,100.0,64.6,estimated_urban
+GL,Greenland,87.5,87.5,65.5,estimated_urban
+GM,"Gambia, The",62.8,62.8,67.4,estimated_urban
+GN,Guinea,36.9,36.9,69.4,estimated_urban
+GQ,Equatorial Guinea,70.6,70.6,66.8,estimated_urban
+GR,Greece,125.8,78.4,64.7,numbeo
+GT,Guatemala,54.9,54.9,68.0,estimated_urban
+GU,Guam,94.1,94.1,65.0,estimated_urban
+GW,Guinea-Bissau,44.7,44.7,68.8,estimated_urban
+GY,Guyana,26.4,26.4,70.2,estimated_urban
+HK,"Hong Kong SAR, China",142.4,100.0,67.9,numbeo
+HN,Honduras,57.4,57.4,67.9,estimated_urban
+HR,Croatia,91.9,56.8,56.7,numbeo
+HT,Haiti,53.2,53.2,68.2,estimated_urban
+HU,Hungary,124.2,70.2,64.4,numbeo
+ID,Indonesia,192.7,56.9,75.6,numbeo
+IE,Ireland,146.5,63.7,68.6,numbeo
+IL,Israel,155.5,91.5,70.1,numbeo
+IM,Isle of Man,52.2,52.2,68.3,estimated_urban
+IN,India,205.1,34.4,77.2,numbeo
+IQ,Iraq,69.9,69.9,66.9,estimated_urban
+IR,"Iran, Islamic Rep.",213.7,76.0,78.3,numbeo
+IS,Iceland,91.1,94.2,56.5,numbeo
+IT,Italy,123.2,69.5,64.2,numbeo
+JG,Channel Islands,32.8,32.8,69.7,estimated_urban
+JM,Jamaica,57.5,57.5,67.8,estimated_urban
+JO,Jordan,190.0,92.1,75.3,numbeo
+JP,Japan,140.2,91.9,67.5,numbeo
+KE,Kenya,240.1,31.3,81.2,numbeo
+KG,Kyrgyz Republic,34.8,34.8,69.6,estimated_urban
+KH,Cambodia,40.1,40.1,69.2,estimated_urban
+KI,Kiribati,59.6,59.6,67.7,estimated_urban
+KM,Comoros,32.4,32.4,69.8,estimated_urban
+KN,St. Kitts and Nevis,31.5,31.5,69.8,estimated_urban
+KP,"Korea, Dem. People's Rep.",62.9,62.9,67.4,estimated_urban
+KR,"Korea, Rep.",142.9,81.2,68.0,numbeo
+KW,Kuwait,162.0,100.0,71.2,numbeo
+KY,Cayman Islands,100.0,100.0,64.6,estimated_urban
+KZ,Kazakhstan,136.1,61.0,66.7,numbeo
+LA,Lao PDR,37.3,37.3,69.4,estimated_urban
+LB,Lebanon,183.8,90.0,74.4,numbeo
+LC,St. Lucia,27.4,27.4,70.2,estimated_urban
+LI,Liechtenstein,14.7,14.7,71.1,estimated_urban
+LK,Sri Lanka,255.1,19.8,82.8,numbeo
+LR,Liberia,53.9,53.9,68.1,estimated_urban
+LS,Lesotho,40.7,40.7,69.1,estimated_urban
+LT,Lithuania,80.8,68.2,53.4,numbeo
+LU,Luxembourg,105.2,94.6,60.2,numbeo
+LV,Latvia,98.1,68.2,58.4,numbeo
+LY,Libya,87.8,87.8,65.5,estimated_urban
+MA,Morocco,130.7,62.3,65.7,numbeo
+MC,Monaco,100.0,100.0,64.6,estimated_urban
+MD,Moldova,41.8,41.8,69.0,estimated_urban
+ME,Montenegro,65.3,65.3,67.2,estimated_urban
+MF,St. Martin (French part),100.0,100.0,64.6,estimated_urban
+MG,Madagascar,31.1,31.1,69.9,estimated_urban
+MH,Marshall Islands,77.6,77.6,66.3,estimated_urban
+MK,North Macedonia,85.1,61.7,54.7,numbeo
+ML,Mali,29.7,29.7,70.0,estimated_urban
+MM,Myanmar,30.2,30.2,69.9,estimated_urban
+MN,Mongolia,69.2,69.2,66.9,estimated_urban
+MO,"Macao SAR, China",100.0,100.0,64.6,estimated_urban
+MP,Northern Mariana Islands,91.8,91.8,65.2,estimated_urban
+MR,Mauritania,57.9,57.9,67.8,estimated_urban
+MT,Malta,96.2,95.5,57.9,numbeo
+MU,Mauritius,39.1,39.1,69.3,estimated_urban
+MV,Maldives,40.7,40.7,69.1,estimated_urban
+MW,Malawi,16.5,16.5,71.0,estimated_urban
+MX,Mexico,174.4,78.9,73.1,numbeo
+MY,Malaysia,168.9,75.5,72.3,numbeo
+MZ,Mozambique,34.4,34.4,69.6,estimated_urban
+NA,Namibia,49.1,49.1,68.5,estimated_urban
+NC,New Caledonia,67.4,67.4,67.1,estimated_urban
+NE,Niger,17.2,17.2,70.9,estimated_urban
+NG,Nigeria,320.3,60.6,88.6,numbeo
+NI,Nicaragua,58.9,58.9,67.7,estimated_urban
+NL,Netherlands,81.8,94.6,53.7,numbeo
+NO,Norway,98.4,82.9,58.4,numbeo
+NP,Nepal,66.1,66.1,67.2,estimated_urban
+NR,Nauru,100.0,100.0,64.6,estimated_urban
+NZ,New Zealand,136.8,83.8,66.9,numbeo
+OM,Oman,126.6,80.1,64.9,numbeo
+PA,Panama,156.4,65.8,70.3,numbeo
+PE,Peru,225.7,83.9,79.7,numbeo
+PF,French Polynesia,61.7,61.7,67.5,estimated_urban
+PG,Papua New Guinea,14.4,14.4,71.2,estimated_urban
+PH,Philippines,180.5,54.5,74.0,numbeo
+PK,Pakistan,164.2,37.9,71.5,numbeo
+PL,Poland,114.7,59.8,62.4,numbeo
+PR,Puerto Rico (US),151.0,94.1,69.4,numbeo
+PS,West Bank and Gaza,86.3,86.3,65.6,estimated_urban
+PT,Portugal,107.1,61.1,60.6,numbeo
+PW,Palau,79.1,79.1,66.2,estimated_urban
+PY,Paraguay,67.3,67.3,67.1,estimated_urban
+QA,Qatar,134.8,99.2,66.5,numbeo
+RO,Romania,123.0,52.2,64.2,numbeo
+RS,Serbia,108.1,61.4,60.9,numbeo
+RU,Russian Federation,173.0,74.8,72.9,numbeo
+RW,Rwanda,26.1,26.1,70.3,estimated_urban
+SA,Saudi Arabia,143.4,84.0,68.1,numbeo
+SB,Solomon Islands,28.7,28.7,70.1,estimated_urban
+SC,Seychelles,44.6,44.6,68.8,estimated_urban
+SD,Sudan,34.6,34.6,69.6,estimated_urban
+SE,Sweden,95.2,88.2,57.6,numbeo
+SG,Singapore,145.6,100.0,68.5,numbeo
+SI,Slovenia,96.9,55.3,58.1,numbeo
+SK,Slovak Republic,98.8,53.2,58.6,numbeo
+SL,Sierra Leone,43.7,43.7,68.9,estimated_urban
+SM,San Marino,97.1,97.1,64.8,estimated_urban
+SN,Senegal,52.2,52.2,68.2,estimated_urban
+SO,"Somalia, Fed. Rep.",52.9,52.9,68.2,estimated_urban
+SR,Suriname,66.0,66.0,67.2,estimated_urban
+SS,South Sudan,20.5,20.5,70.7,estimated_urban
+ST,Sao Tome and Principe,68.2,68.2,67.0,estimated_urban
+SV,El Salvador,73.7,73.7,66.6,estimated_urban
+SX,Sint Maarten (Dutch part),100.0,100.0,64.6,estimated_urban
+SY,Syrian Arab Republic,73.0,73.0,66.7,estimated_urban
+SZ,Eswatini,25.0,25.0,70.3,estimated_urban
+TC,Turks and Caicos Islands,93.4,93.4,65.1,estimated_urban
+TD,Chad,25.2,25.2,70.3,estimated_urban
+TG,Togo,42.3,42.3,69.0,estimated_urban
+TH,Thailand,168.0,58.5,72.1,numbeo
+TJ,Tajikistan,26.2,26.2,70.3,estimated_urban
+TL,Timor-Leste,28.8,28.8,70.1,estimated_urban
+TM,Turkmenistan,47.1,47.1,68.6,estimated_urban
+TN,Tunisia,131.0,69.4,65.8,numbeo
+TO,Tonga,21.3,21.3,70.6,estimated_urban
+TR,Turkiye,186.5,89.2,74.8,numbeo
+TT,Trinidad and Tobago,53.9,53.9,68.1,estimated_urban
+TV,Tuvalu,62.6,62.6,67.5,estimated_urban
+TW,Taiwan,119.3,79.0,63.4,numbeo
+TZ,Tanzania,34.4,34.4,69.6,estimated_urban
+UA,Ukraine,144.0,69.4,68.2,numbeo
+UG,Uganda,29.2,29.2,70.0,estimated_urban
+US,United States,156.4,80.0,70.3,numbeo
+UY,Uruguay,153.2,95.4,69.8,numbeo
+UZ,Uzbekistan,50.9,50.9,68.3,estimated_urban
+VC,St. Vincent and the Grenadines,47.5,47.5,68.6,estimated_urban
+VE,"Venezuela, RB",140.9,89.2,67.6,numbeo
+VG,British Virgin Islands,54.0,54.0,68.1,estimated_urban
+VI,Virgin Islands (U.S.),95.2,95.2,64.9,estimated_urban
+VN,Viet Nam,108.1,36.7,60.9,numbeo
+VU,Vanuatu,22.3,22.3,70.6,estimated_urban
+WS,Samoa,17.6,17.6,70.9,estimated_urban
+XK,Kosovo,55.0,55.0,68.0,estimated_urban
+YE,"Yemen, Rep.",36.1,36.1,69.5,estimated_urban
+ZA,South Africa,185.7,63.5,74.7,numbeo
+ZM,Zambia,44.2,44.2,68.9,estimated_urban
+ZW,Zimbabwe,37.9,37.9,69.4,estimated_urban
