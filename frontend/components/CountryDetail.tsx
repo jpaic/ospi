@@ -76,24 +76,12 @@ export default function CountryDetail({ country: c }: Props) {
       }
 
       // ── Trend chart ──
-      // history: [{y: year, v: population_millions}] from DB, one row per year
-      // ospiHistory: exact-year estimates aligned to the population series
-      const historyYears = c.history.map(h => String(h.y))
-      const historyVals = c.history.map(h => parseFloat(h.v.toFixed(4)))
-
-      const hasOspiHistory = c.ospiHistory.length > 0
-      const ospiByYear = new Map(c.ospiHistory.map(h => [h.y, parseFloat(h.v.toFixed(4))]))
+      const trendLabels = c.history.map(h => String(h.y))
+      const histDataset = c.history.map(h => parseFloat(h.v.toFixed(4)))
       const ospiVal = parseFloat(c.ospi.toFixed(4))
 
-      // Labels: all history years + one extra point for the OSPI estimate
-      const trendLabels = [...historyYears]
-
-      const histDataset = [...historyVals]
-
-      const ospiDataset = c.history.map((h, i) =>
-        hasOspiHistory
-          ? ospiByYear.get(h.y) ?? (null as number | null)
-          : i === c.history.length - 1 ? ospiVal : (null as number | null)
+      const ospiDataset = c.history.map((_, i) =>
+        i === c.history.length - 1 ? ospiVal : null
       )
 
       trendInst.current = new Chart(trendRef.current!, {
@@ -117,22 +105,17 @@ export default function CountryDetail({ country: c }: Props) {
             {
               label: 'OSPI estimate',
               data: ospiDataset,
-              borderColor: noSignals
-                ? (isDark ? '#3f3f46' : '#d4d4d8')
-                : isPos ? '#1D9E75' : '#E24B4A',
+              borderColor: 'transparent',
               backgroundColor: 'transparent',
-              borderWidth: 1.5,
-              borderDash: [4, 4],
-              pointRadius: (ctx) => ctx.parsed.y === null ? 0 : 3,
+              borderWidth: 0,
+              pointRadius: (ctx) => ctx.parsed.y === null ? 0 : 7,
               pointBackgroundColor: noSignals
                 ? (isDark ? '#3f3f46' : '#d4d4d8')
                 : isPos ? '#1D9E75' : '#E24B4A',
-              pointBorderColor: noSignals
-                ? (isDark ? '#3f3f46' : '#d4d4d8')
-                : isPos ? '#1D9E75' : '#E24B4A',
+              pointBorderColor: isDark ? '#18181b' : '#fff',
+              pointBorderWidth: 2,
               pointStyle: 'circle',
               fill: false,
-              tension: 0.4,
               spanGaps: false,
             },
           ],
