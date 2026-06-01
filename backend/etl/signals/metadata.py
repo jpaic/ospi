@@ -191,6 +191,7 @@ async def fetch_country_metadata(
         "region":         country.get("SubRegion") or country.get("Region") or "Unknown",
         "urban_pct":      None,
         "density_km2":    None,
+        "area_km2":       None,
         "gdp_per_capita": None,
     }
 
@@ -204,6 +205,7 @@ async def fetch_country_metadata(
         await asyncio.sleep(0.3 + (hash(iso2) % 10) * 0.05)  # 0.3–0.8s jitter
 
         record["urban_pct"]      = urban
+        record["area_km2"]       = land_area
         record["density_km2"]    = compute_density(pop_from_db.get(iso2), land_area)
         record["gdp_per_capita"] = gdp
 
@@ -314,6 +316,7 @@ def store_metadata_signals(signals: dict[str, dict]):
             rec["region"],
             rec["urban_pct"]      or 0,
             rec["density_km2"]    or 0,
+            rec["area_km2"],
             rec["gdp_per_capita"] or 0,
         )
         for iso2, rec in signals.items()
@@ -331,7 +334,7 @@ def store_metadata_signals(signals: dict[str, dict]):
                 cur,
                 """
                 INSERT INTO country_metadata
-                    (iso2, iso3, name, lat, lng, region, urban_pct, density_km2, gdp_per_capita)
+                    (iso2, iso3, name, lat, lng, region, urban_pct, density_km2, area_km2, gdp_per_capita)
                 VALUES %s
                 ON CONFLICT (iso2) DO UPDATE SET
                     iso3           = EXCLUDED.iso3,
@@ -341,6 +344,7 @@ def store_metadata_signals(signals: dict[str, dict]):
                     region         = EXCLUDED.region,
                     urban_pct      = EXCLUDED.urban_pct,
                     density_km2    = EXCLUDED.density_km2,
+                    area_km2       = EXCLUDED.area_km2,
                     gdp_per_capita = EXCLUDED.gdp_per_capita,
                     fetched_at     = now()
                 """,

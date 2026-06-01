@@ -1,4 +1,5 @@
 import csv
+import math
 from pathlib import Path
 from db.connection import get_conn
 from psycopg2.extras import execute_values
@@ -6,13 +7,20 @@ from psycopg2.extras import execute_values
 REFERENCE_YEAR = 2024
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "building_density.csv"
 
+# Total building count (not density): bld_count_m * 1_000_000
+# Range: ~50k (Somalia) to ~200M (China).
+BLDG_MIN = 10_000
+BLDG_MAX = 500_000_000
+
 
 def fetch_building_signals():
-    """Read pre-computed building density scores from the bundled CSV.
+    """Read building footprint counts from the bundled CSV and convert
+    from density (per km²) to total building count per country.
 
-    The CSV is generated from Microsoft Global ML Building Footprints
-    and OpenStreetMap data. Each country's building count is divided by
-    land area, then log-normalised to [0, 100].
+    The CSV contains Microsoft Global ML Building Footprints data with
+    bld_count_m (millions of buildings) and land_km2 columns.
+
+    Total = bld_count_m × 1_000_000, then log-normalised to [0, 100].
 
     Re-generate with:
         python backend/etl/data/generate_building_data.py
@@ -28,24 +36,28 @@ def fetch_building_signals():
         reader = csv.DictReader(f)
         for row in reader:
             iso2 = row["iso2"]
-            score = row.get("score", "").strip()
-            density = row.get("density_per_km2", "").strip()
+            bld_str = row.get("bld_count_m", "").strip()
 
-            if not score or not density:
+            if not bld_str:
                 skipped += 1
                 continue
 
-            raw_value = round(float(density), 2)
-            normalised = float(score)
+            total = float(bld_str) * 1_000_000
+            safe_value = max(total, BLDG_MIN)
+            log_val = math.log(safe_value)
+            log_min = math.log(BLDG_MIN)
+            log_max = math.log(BLDG_MAX)
+            score = round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
+            score = min(max(score, 0), 100)
 
             results.append({
                 "iso2": iso2,
-                "raw_value": raw_value,
-                "score": normalised,
+                "raw_value": round(total, 1),
+                "score": score,
                 "year": REFERENCE_YEAR,
             })
 
-    print(f"Loaded {len(results)} building-density rows from CSV ({skipped} skipped)")
+    print(f"Loaded {len(results)} building-total rows from CSV ({skipped} skipped)")
     return results
 
 

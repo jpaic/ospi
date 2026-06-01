@@ -13,8 +13,14 @@ WORLD_BANK_URL = (
     f"EG.USE.ELEC.KH.PC?format=json&date={START_YEAR}:{END_YEAR}&per_page=20000"
 )
 
+# Per-capita kWh bounds for the raw fetch (keep as-is)
 KWH_MIN = 100
 KWH_MAX = 25_000
+
+# Total proxy bounds: per_capita_kwh × area_km2
+# Range: ~10k (microstate × low usage) to ~5e11 (large × high usage).
+ELEC_TOTAL_MIN = 10_000
+ELEC_TOTAL_MAX = 500_000_000_000
 
 
 def fetch_electricity_signals():
@@ -90,10 +96,42 @@ def fetch_electricity_signals():
 
 
 def store_electricity_signals(signals: list[dict]):
-    rows = [
-        (data["iso2"], data["raw_kwh"], data["score"], data["year"])
-        for data in signals
-    ]
+    """
+    Convert per-capita kWh to a total-consumption proxy by multiplying
+    with land area (km²) from country_metadata, then log-normalise.
+    """
+    # Collect all iso2 codes from the fetched signals
+    iso2s = list({s["iso2"] for s in signals})
+
+    # Bulk-fetch area_km2 from country_metadata
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, area_km2 FROM country_metadata WHERE iso2 = ANY(%s)",
+                (iso2s,),
+            )
+            area_map = {r[0]: r[1] for r in cur.fetchall()}
+
+    # Compute mean area for fallback (NULL / missing area_km2)
+    valid_areas = [v for v in area_map.values() if v is not None and float(v) > 0]
+    mean_area = float(sum(valid_areas)) / len(valid_areas) if valid_areas else 1.0
+
+    log_min = math.log(ELEC_TOTAL_MIN)
+    log_max = math.log(ELEC_TOTAL_MAX)
+
+    rows = []
+    for s in signals:
+        iso2 = s["iso2"]
+        kwh_per_capita = float(s["raw_kwh"])
+        area = area_map.get(iso2)
+        if area is None or float(area) <= 0:
+            area = mean_area
+        total_proxy = kwh_per_capita * float(area)
+        safe_value = max(total_proxy, ELEC_TOTAL_MIN)
+        log_val = math.log(safe_value)
+        score = round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
+        score = min(max(score, 0), 100)
+        rows.append((iso2, "electricity", round(total_proxy, 1), score, s["year"]))
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -108,8 +146,8 @@ def store_electricity_signals(signals: list[dict]):
                     score = EXCLUDED.score,
                     fetched_at = now()
                 """,
-                [(iso2, 'electricity', raw, score, year) for iso2, raw, score, year in rows],
+                rows,
             )
         conn.commit()
 
-    print(f"Stored {len(rows)} electricity signals")
+    print(f"Stored {len(rows)} electricity signals (per-capita × area → total proxy)")

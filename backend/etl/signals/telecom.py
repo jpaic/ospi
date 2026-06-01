@@ -10,11 +10,13 @@ END_YEAR = date.today().year - 1
 
 WORLD_BANK_URL = (
     "https://api.worldbank.org/v2/country/all/indicator/"
-    f"IT.CEL.SETS.P2?format=json&date={START_YEAR}:{END_YEAR}&per_page=20000"
+    f"IT.CEL.SETS?format=json&date={START_YEAR}:{END_YEAR}&per_page=20000"
 )
 
-SIM_MIN  = 1
-SIM_MAX = 200
+# Total mobile cellular subscriptions (not per 100 people).
+# Range: ~1k (microstates) to ~1.8B (China).
+TEL_MIN  = 1_000
+TEL_MAX = 2_000_000_000
 
 
 def fetch_telecom_signals():
@@ -64,16 +66,16 @@ def fetch_telecom_signals():
             skipped_duplicate_year.append(f"{iso2} {year}")
             continue
 
-        safe_value = max(min(value, SIM_MAX), SIM_MIN)
+        safe_value = max(min(value, TEL_MAX), TEL_MIN)
         log_val = math.log(safe_value)
-        log_min = math.log(SIM_MIN)
-        log_max = math.log(SIM_MAX)
+        log_min = math.log(TEL_MIN)
+        log_max = math.log(TEL_MAX)
         score = round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
         score = min(max(score, 0), 100)
 
         results[(iso2, year)] = {
             "iso2": iso2,
-            "raw_sim": round(value, 1),
+            "raw_tel": round(value, 1),
             "score": score,
             "year": year,
         }
@@ -91,7 +93,7 @@ def fetch_telecom_signals():
 
 def store_telecom_signals(signals: list[dict]):
     rows = [
-        (data["iso2"], data["raw_sim"], data["score"], data["year"])
+        (data["iso2"], data["raw_tel"], data["score"], data["year"])
         for data in signals
     ]
 
