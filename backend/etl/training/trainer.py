@@ -34,10 +34,10 @@ log = logging.getLogger(__name__)
 
 # Ordered list of ALL features the model uses. Signal keys first, then the
 # size-anchor feature. evaluate.py and estimator.py must use the same list.
-ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2"]
+ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2", "signal_count"]
 
 # Per-feature Ridge alphas for signal-level features.
-SIGNAL_FEATURE_ALPHAS = [0.001, 0.1, 10.0, 10.0, 10.0, 1e-6]
+SIGNAL_FEATURE_ALPHAS = [0.001, 0.1, 10.0, 10.0, 10.0, 1e-6, 0.1]
 CONTINENT_ALPHA = 1.0
 
 # Continent mapping from UN sub-region → 5 continents
@@ -146,9 +146,10 @@ def _build_feature_matrix(rows: list[dict], return_regions: bool = False) -> tup
             float(r[k]) if r.get(k) is not None else signal_means[k]
             for k in SIGNAL_KEYS
         ]
+        signal_count = sum(1 for k in SIGNAL_KEYS if r.get(k) is not None)
         area = r.get("area_km2")
         log_area = math.log(float(area)) if area and float(area) > 0 else log_area_mean
-        X_rows.append(signal_vals + [log_area])
+        X_rows.append(signal_vals + [log_area, signal_count])
         regions.append(r.get("region"))
 
     result: tuple = (np.array(X_rows, dtype=float), iso2s)
@@ -189,11 +190,11 @@ def _persist_model(conn, weights: dict, scaler_mean: list, scaler_scale: list,
             """
             INSERT INTO model_weights
                 (intercept, telecom, electricity, building, mobility, internet,
-                 log_area_km2, lambda, r_squared, cv_r_squared,
+                 log_area_km2, signal_count, lambda, r_squared, cv_r_squared,
                  n_training, scaler_mean, scaler_scale, region_coefs)
             VALUES
                 (%(intercept)s, %(telecom)s, %(electricity)s, %(building)s,
-                 %(mobility)s, %(internet)s, %(log_area_km2)s,
+                 %(mobility)s, %(internet)s, %(log_area_km2)s, %(signal_count)s,
                  %(lambda)s, %(r_squared)s, %(cv_r_squared)s,
                  %(n_training)s, %(scaler_mean)s, %(scaler_scale)s,
                  %(region_coefs)s::jsonb)

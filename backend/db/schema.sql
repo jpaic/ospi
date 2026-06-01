@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS model_weights (
     building     FLOAT NOT NULL DEFAULT 0,
     mobility     FLOAT NOT NULL DEFAULT 0,
     internet     FLOAT NOT NULL DEFAULT 0,
+    signal_count FLOAT NOT NULL DEFAULT 0,
     lambda       FLOAT NOT NULL,          -- regularisation strength used
     r_squared    FLOAT,                   -- goodness of fit on training set
     n_training   INT,                     -- number of countries used

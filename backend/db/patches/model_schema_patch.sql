@@ -53,4 +53,5 @@ ALTER TABLE model_weights
         CHECK (r_squared BETWEEN -1.0 AND 1.0);
 
 ALTER TABLE model_weights
-    ADD COLUMN IF NOT EXISTS region_coefs JSONB;
+    ADD COLUMN IF NOT EXISTS region_coefs JSONB,
+    ADD COLUMN IF NOT EXISTS signal_count FLOAT;

@@ -159,9 +159,13 @@ def _compute_estimate_v2(
     log_area_idx = ALL_FEATURE_KEYS.index("log_area_km2")
     log_area_fallback = float(scaler_mean[log_area_idx]) if scaler_mean else 0.0
 
-    signal_vals = [float(available.get(k, 0.0)) for k in SIGNAL_KEYS]
+    signal_vals = [
+        float(available.get(k, scaler_mean[i]))
+        for i, k in enumerate(SIGNAL_KEYS)
+    ]
     log_area    = _log_area_static(area_km2, log_area_fallback)
-    raw_features = signal_vals + [log_area]
+    signal_count = len(available)
+    raw_features = signal_vals + [log_area, signal_count]
 
     if scaler_mean and scaler_scale and len(scaler_mean) == len(raw_features):
         features = _scale_features(raw_features, scaler_mean, scaler_scale)
