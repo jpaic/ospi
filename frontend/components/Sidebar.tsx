@@ -90,20 +90,40 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         </div>
 
         {/* Territory toggle */}
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[9px] text-zinc-400 uppercase tracking-wider">Territories</span>
-          <button
-            onClick={() => onToggleTerritories?.(!hideTerritories)}
-            className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${
-              hideTerritories ? 'bg-zinc-300 dark:bg-zinc-600' : 'bg-emerald-500'
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
-                hideTerritories ? 'translate-x-0' : 'translate-x-4'
+        <div className="mb-2 p-2 rounded bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <span className="text-[9px] text-zinc-400 uppercase tracking-wider">
+                Dependencies
+              </span>
+              <span className="group relative inline-flex">
+                <svg className="w-2.5 h-2.5 text-zinc-300 dark:text-zinc-600 cursor-help" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>
+                </svg>
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 w-44 p-1.5 rounded bg-zinc-800 text-white text-[8px] leading-tight shadow-lg z-10 hidden group-hover:block pointer-events-none">
+                  Non-sovereign territories often have sparse signal coverage, making OSPI estimates less reliable.
+                </span>
+              </span>
+            </div>
+            <button
+              onClick={() => onToggleTerritories?.(!hideTerritories)}
+              className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${
+                hideTerritories ? 'bg-zinc-300 dark:bg-zinc-600' : 'bg-emerald-500'
               }`}
-            />
-          </button>
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                  hideTerritories ? 'translate-x-0' : 'translate-x-4'
+                }`}
+              />
+            </button>
+          </div>
+          <p className="text-[8px] text-zinc-300 dark:text-zinc-600 mt-1 leading-tight">
+            {hideTerritories
+              ? 'Dependencies hidden — toggle to show'
+              : 'Showing dependencies (estimates may be unreliable)'
+            }
+          </p>
         </div>
 
         {/* ML Model status panel */}

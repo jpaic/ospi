@@ -20,7 +20,7 @@ function OSPIInner() {
   const [selected, setSelected] = useState<Country | null>(null)
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
-  const [hideTerritories, setHideTerritories] = useState(false)
+  const [hideTerritories, setHideTerritories] = useState(true)
 
   const countries = useCountries()
   const isLoading = useCountriesLoading()
