@@ -12,6 +12,7 @@ import type { Country } from '@/lib/types'
 interface Props {
   selected?: Country | null
   onSelect?: (c: Country) => void
+  countries?: Country[]
 }
 
 function calcDelta(c: { ospi: number; official: number }): number {
@@ -93,8 +94,9 @@ function ThBtn({
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function DefaultDashboard({ selected, onSelect }: Props) {
-  const countries = useCountries()
+export default function DefaultDashboard({ selected, onSelect, countries: propCountries }: Props) {
+  const allCountries = useCountries()
+  const countries = propCountries ?? allCountries
   const { noSignals } = useDataSource()
 
   const barRef = useRef<HTMLCanvasElement>(null)

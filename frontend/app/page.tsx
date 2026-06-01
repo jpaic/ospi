@@ -8,6 +8,7 @@ import { useDataSource } from '@/lib/dataSource'
 import { sortByDivergence } from '@/lib/estimator'
 import { fmt, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
 import type { Country } from '@/lib/types'
+import { TERRITORY_ISO2 } from '@/lib/territories'
 import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
 import DefaultDashboard from '@/components/DefaultDashboard'
@@ -19,6 +20,7 @@ function OSPIInner() {
   const [selected, setSelected] = useState<Country | null>(null)
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
+  const [hideTerritories, setHideTerritories] = useState(false)
 
   const countries = useCountries()
   const isLoading = useCountriesLoading()
@@ -29,7 +31,12 @@ function OSPIInner() {
     }
   }, [])
 
-  const sorted = useMemo(() => sortByDivergence(countries), [countries])
+  const visibleCountries = useMemo(
+    () => hideTerritories ? countries.filter(c => !TERRITORY_ISO2.has(c.iso)) : countries,
+    [countries, hideTerritories],
+  )
+
+  const sorted = useMemo(() => sortByDivergence(visibleCountries), [visibleCountries])
 
   const filtered = useMemo(
     () => sorted.filter(c => c.name.toLowerCase().includes(query.toLowerCase())),
@@ -64,7 +71,7 @@ function OSPIInner() {
 
           <div className="ml-auto flex items-center gap-4">
             <span suppressHydrationWarning className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-              {countries.length} countries · 5 signals · UN WPP ·{' '}
+              {visibleCountries.length} countries · 5 signals · UN WPP ·{' '}
               <a
                 href="https://github.com/jpaic/ospi"
                 target="_blank"
@@ -97,6 +104,8 @@ function OSPIInner() {
             onSelect={setSelected}
             query={query}
             onSearch={setQuery}
+            hideTerritories={hideTerritories}
+            onToggleTerritories={setHideTerritories}
           />
 
           <main className="flex flex-1 overflow-hidden">
@@ -105,7 +114,7 @@ function OSPIInner() {
             <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
               {selected
                 ? <CountryDetail country={selected} />
-                : <DefaultDashboard selected={selected} onSelect={setSelected} />
+                : <DefaultDashboard selected={selected} onSelect={setSelected} countries={visibleCountries} />
               }
             </div>
 
@@ -127,7 +136,7 @@ function OSPIInner() {
 
               <div style={{ width: 320, height: 320 }} className="shrink-0 overflow-hidden">
                 <WorldMap
-                  countries={countries}
+                  countries={visibleCountries}
                   selected={selected}
                   onSelect={setSelected}
                   resetKey={mapResetKey}
@@ -141,7 +150,7 @@ function OSPIInner() {
                 {selected ? (
                   <QuickStats country={selected} />
                 ) : (
-                  <AnomalyList countries={countries} onSelect={setSelected} />
+                  <AnomalyList countries={visibleCountries} onSelect={setSelected} />
                 )}
               </div>
             </div>

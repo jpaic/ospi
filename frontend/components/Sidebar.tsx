@@ -6,13 +6,15 @@ import { confLabel, confColor, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtPct } from '@/lib/fmt'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
-
+ 
 interface Props {
   countries: Country[]
   selected: Country | null
   onSelect: (c: Country) => void
   query: string
   onSearch: (q: string) => void
+  hideTerritories?: boolean
+  onToggleTerritories?: (v: boolean) => void
 }
 
 function deltaStr(c: Country): string {
@@ -29,7 +31,7 @@ function ConfDot({ conf }: { conf: Country['conf'] }) {
   )
 }
 
-export default function Sidebar({ countries, selected, onSelect, query, onSearch }: Props) {
+export default function Sidebar({ countries, selected, onSelect, query, onSearch, hideTerritories, onToggleTerritories }: Props) {
   const [expandedRegions, setExpandedRegions] = useState<string | null>(null)
   const allCountries = useCountries()
   const { noSignals } = useDataSource()
@@ -86,6 +88,23 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           </div>
         </div>
 
+        {/* Territory toggle */}
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[9px] text-zinc-400 uppercase tracking-wider">Territories</span>
+          <button
+            onClick={() => onToggleTerritories?.(!hideTerritories)}
+            className={`relative w-8 h-4 rounded-full transition-colors shrink-0 ${
+              hideTerritories ? 'bg-zinc-300 dark:bg-zinc-600' : 'bg-emerald-500'
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform ${
+                hideTerritories ? 'translate-x-0' : 'translate-x-4'
+              }`}
+            />
+          </button>
+        </div>
+
         {/* Search */}
         <div className="relative">
           <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -108,7 +127,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
               </svg>
             </button>
           )}
-      </div>
+        </div>
       </div>
 
       {/* ── Sort hint ── */}
@@ -227,6 +246,6 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           )
         })}
       </ul>
-    </aside >
+    </aside>
   )
 }
