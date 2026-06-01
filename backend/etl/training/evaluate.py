@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler
 
 from db.connection import get_conn
 from etl.training.constants import MIN_R2_THRESHOLD, MIN_TRAINING_COUNTRIES
-from etl.training.trainer import ALL_FEATURE_KEYS, _build_feature_matrix, _fit_ridge_per_feature
+from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT, KEPT_CONTINENTS, _build_feature_matrix, _fit_ridge_per_feature, SIGNAL_FEATURE_ALPHAS, CONTINENT_ALPHA
 from etl.utils.signal_pivot import SIGNAL_KEYS, signal_coverage
 
 log = logging.getLogger(__name__)
@@ -60,6 +60,7 @@ def load_all_training_data() -> list[dict]:
                         lp.population,
                         lp.source_confidence,
                         cm.area_km2,
+                        cm.region,
                         MAX(CASE WHEN ls.signal_type = 'telecom'     THEN ls.score END) AS telecom,
                         MAX(CASE WHEN ls.signal_type = 'electricity' THEN ls.score END) AS electricity,
                         MAX(CASE WHEN ls.signal_type = 'building'    THEN ls.score END) AS building,
@@ -68,7 +69,7 @@ def load_all_training_data() -> list[dict]:
                     FROM latest_pop lp
                     LEFT JOIN latest_signals ls ON ls.iso2 = lp.iso2
                     LEFT JOIN country_metadata cm ON cm.iso2 = lp.iso2
-                    GROUP BY lp.iso2, lp.population, lp.source_confidence, cm.area_km2
+                    GROUP BY lp.iso2, lp.population, lp.source_confidence, cm.area_km2, cm.region
                 )
                 SELECT * FROM pivoted
                 WHERE population IS NOT NULL AND population > 0
@@ -113,14 +114,22 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
     filtered = [r for r in rows if signal_coverage(r) >= 0.4 and r["population"] > 0]
     log.info("[evaluate] %d countries pass coverage filter", len(filtered))
 
-    # Reuse trainer's feature-matrix builder (mean imputation + log_area)
-    X_raw, _ = _build_feature_matrix(filtered)
+    X_raw_sig, _, regions = _build_feature_matrix(filtered, return_regions=True)
     y = np.array([math.log(float(r["population"])) for r in filtered])
+    N_SIG = len(ALL_FEATURE_KEYS)
 
-    PER_FEATURE_ALPHAS = np.array([0.001, 0.1, 10.0, 10.0, 10.0, 1e-6])
+    continents = np.array([UN_REGION_TO_CONTINENT.get(r, "") for r in regions])
+    dummies = np.zeros((len(continents), len(KEPT_CONTINENTS)))
+    for i, cont in enumerate(continents):
+        if cont in KEPT_CONTINENTS:
+            dummies[i, KEPT_CONTINENTS.index(cont)] = 1.0
+    X_raw = np.hstack([X_raw_sig, dummies])
+    N_CONT = len(KEPT_CONTINENTS)
+
+    PER_FEATURE_ALPHAS = np.array(SIGNAL_FEATURE_ALPHAS + [CONTINENT_ALPHA] * N_CONT)
     cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
-    log.info("[evaluate] Running %d-fold CV with per-feature Ridge...", n_splits)
+    log.info("[evaluate] Running %d-fold CV with continent features...", n_splits)
 
     # --- CV loop matching trainer methodology ---
     all_fold_r2s = []
@@ -130,8 +139,10 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
         y_tr, y_va = y[train_idx], y[val_idx]
 
         scaler_fold = StandardScaler()
-        X_tr_s = scaler_fold.fit_transform(X_tr)
-        X_va_s = scaler_fold.transform(X_va)
+        X_tr_sig_s = scaler_fold.fit_transform(X_tr[:, :N_SIG])
+        X_va_sig_s = scaler_fold.transform(X_va[:, :N_SIG])
+        X_tr_s = np.hstack([X_tr_sig_s, X_tr[:, N_SIG:]])
+        X_va_s = np.hstack([X_va_sig_s, X_va[:, N_SIG:]])
 
         w_fold, int_fold = _fit_ridge_per_feature(X_tr_s, y_tr, PER_FEATURE_ALPHAS)
 
@@ -183,16 +194,18 @@ def compute_feature_importance(model_id: int | None = None) -> dict:
 
     coefs = {k: model[k] for k in ALL_FEATURE_KEYS if k in model}
     sorted_coefs = sorted(coefs.items(), key=lambda x: abs(x[1]), reverse=True)
+    region_coefs = model.get("region_coefs") or {}
 
     return {
-        "model_id":     model["id"],
-        "trained_at":   str(model["trained_at"]),
-        "r_squared":    model["r_squared"],
-        "cv_r_squared": model.get("cv_r_squared"),
-        "n_training":   model["n_training"],
-        "intercept":    model["intercept"],
-        "lambda":       model["lambda"],
-        "coefficients": dict(sorted_coefs),
+        "model_id":      model["id"],
+        "trained_at":    str(model["trained_at"]),
+        "r_squared":     model["r_squared"],
+        "cv_r_squared":  model.get("cv_r_squared"),
+        "n_training":    model["n_training"],
+        "intercept":     model["intercept"],
+        "lambda":        model["lambda"],
+        "coefficients":  dict(sorted_coefs),
+        "region_coefs":  region_coefs,
     }
 
 

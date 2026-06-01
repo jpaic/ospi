@@ -72,7 +72,8 @@ CREATE TABLE IF NOT EXISTS model_weights (
     internet     FLOAT NOT NULL DEFAULT 0,
     lambda       FLOAT NOT NULL,          -- regularisation strength used
     r_squared    FLOAT,                   -- goodness of fit on training set
-    n_training   INT                      -- number of countries used
+    n_training   INT,                     -- number of countries used
+    region_coefs JSONB                   -- continent-level bias adjustments
 );
 
 CREATE TABLE IF NOT EXISTS model_residuals (

@@ -25,7 +25,7 @@ v2.1 fixes:
 """
 import math
 from db.connection import get_conn
-from etl.training.trainer import ALL_FEATURE_KEYS
+from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT
 
 SIGNAL_KEYS = ["telecom", "electricity", "building", "mobility", "internet"]
 
@@ -138,40 +138,46 @@ def _compute_estimate_v2(
     iso2: str,
     official_pop: float | None = None,
     area_km2: float | None = None,
+    region: str | None = None,
 ) -> dict:
     """
-    Log-linear ridge regression estimate with StandardScaler applied.
+    Log-linear ridge regression estimate with continent-level adjustment.
 
-    signals:     {signal_type: score_0_100}  (may have missing keys)
-    model:       row from model_weights (includes scaler_mean, scaler_scale)
+    signals:     {signal_type: score_0_100}
+    model:       row from model_weights (includes scaler_mean, scaler_scale,
+                 region_coefs JSONB)
     residuals:   {iso2: abs_log_residual}
-    area_km2:    static land area from country_metadata (census-free size anchor)
+    area_km2:    static land area from country_metadata
+    region:      UN sub-region for continent adjustment lookup
     """
     available = {k: signals[k] for k in SIGNAL_KEYS if signals.get(k) is not None}
     coverage  = len(available) / len(SIGNAL_KEYS)
 
-    # Retrieve scaler params — stored as Postgres arrays (lists after psycopg2 decode)
     scaler_mean  = model.get("scaler_mean") or []
     scaler_scale = model.get("scaler_scale") or []
 
-    # Compute training-set mean log_area as fallback (index of log_area_km2 in scaler)
     log_area_idx = ALL_FEATURE_KEYS.index("log_area_km2")
     log_area_fallback = float(scaler_mean[log_area_idx]) if scaler_mean else 0.0
 
-    # Build raw feature vector in ALL_FEATURE_KEYS order
     signal_vals = [float(available.get(k, 0.0)) for k in SIGNAL_KEYS]
     log_area    = _log_area_static(area_km2, log_area_fallback)
     raw_features = signal_vals + [log_area]
 
-    # Apply scaler if params are available; fall back to raw if not persisted
     if scaler_mean and scaler_scale and len(scaler_mean) == len(raw_features):
         features = _scale_features(raw_features, scaler_mean, scaler_scale)
     else:
         features = raw_features
 
-    # Dot product with model coefficients
     coefs    = [float(model[k]) for k in ALL_FEATURE_KEYS]
     log_est  = float(model["intercept"]) + sum(c * f for c, f in zip(coefs, features))
+
+    # Continent-level adjustment. Europe is reference (coef absorbed into intercept).
+    region_coefs = model.get("region_coefs")
+    if region_coefs and region:
+        continent = UN_REGION_TO_CONTINENT.get(region)
+        if continent:
+            log_est += float(region_coefs.get(continent, 0.0))
+
     estimate = round(math.exp(log_est), 4)
 
     composite  = sum(float(available.get(k, 0.0)) for k in SIGNAL_KEYS) / len(SIGNAL_KEYS)
@@ -275,6 +281,19 @@ def get_area_bulk(iso2_list: list[str]) -> dict[str, float]:
             }
 
 
+def get_region_bulk(iso2_list: list[str]) -> dict[str, str | None]:
+    """Fetch UN sub-region for continent adjustment."""
+    if not iso2_list:
+        return {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, region FROM country_metadata WHERE iso2 = ANY(%s)",
+                (iso2_list,),
+            )
+            return {r[0]: r[1] for r in cur.fetchall()}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
@@ -286,6 +305,7 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
     official_pops = get_official_populations(iso2_list)
     signals_map   = get_signals_bulk(iso2_list)
     area_map      = get_area_bulk(iso2_list)
+    region_map    = get_region_bulk(iso2_list)
 
     with get_conn() as conn:
         model, residuals = _load_model_and_residuals(conn)
@@ -295,9 +315,10 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
         official = official_pops.get(iso2)
         signals  = signals_map.get(iso2, {})
         area     = area_map.get(iso2)
+        region   = region_map.get(iso2)
 
         if model:
-            est = _compute_estimate_v2(signals, model, residuals, iso2, official, area)
+            est = _compute_estimate_v2(signals, model, residuals, iso2, official, area, region)
         else:
             if official is None:
                 results[iso2] = {
@@ -360,14 +381,10 @@ def _estimate_history_v2(
         sig_rows = cur.fetchall()
 
         cur.execute(
-            "SELECT iso2, area_km2 FROM country_metadata WHERE iso2 = ANY(%s)",
+            "SELECT iso2, area_km2, region FROM country_metadata WHERE iso2 = ANY(%s)",
             (iso2_list,),
         )
-        area_map = {
-            r[0]: float(r[1])
-            for r in cur.fetchall()
-            if r[1] is not None and float(r[1]) > 0
-        }
+        metadata = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
 
     sig_by_country_year: dict[str, dict[int, dict]] = {}
     for iso2, signal_type, year, score in sig_rows:
@@ -387,8 +404,9 @@ def _estimate_history_v2(
         if signals is None:
             signals = {}
 
-        area = area_map.get(iso2)
-        est = _compute_estimate_v2(signals, model, residuals, iso2, float(population), area)
+        area, region = metadata.get(iso2, (None, None))
+        est = _compute_estimate_v2(signals, model, residuals, iso2,
+                                    float(population), area, region)
         results.setdefault(iso2, []).append({
             "y": int(year),
             "v": round(est["estimate"], 4),

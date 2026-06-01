@@ -51,3 +51,6 @@ ALTER TABLE model_weights
     DROP CONSTRAINT IF EXISTS model_weights_r_squared_check,
     ADD CONSTRAINT model_weights_r_squared_check
         CHECK (r_squared BETWEEN -1.0 AND 1.0);
+
+ALTER TABLE model_weights
+    ADD COLUMN IF NOT EXISTS region_coefs JSONB;
