@@ -6,6 +6,7 @@ import { confLabel, confColor, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtPct } from '@/lib/fmt'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
+import ModelStatus from '@/components/ModelStatus'
  
 interface Props {
   countries: Country[]
@@ -103,6 +104,13 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
               }`}
             />
           </button>
+        </div>
+
+        {/* ML Model status panel */}
+        <div className="mb-2">
+          <ModelStatus
+            adminToken={process.env.NEXT_PUBLIC_ADMIN_TOKEN}
+          />
         </div>
 
         {/* Search */}
