@@ -31,8 +31,8 @@ ETL (Python)  →  PostgreSQL  →  FastAPI backend  →  Next.js frontend
 | Telecom (mobile subscriptions) | 🟢 Live |
 | Electricity consumption | 🟢 Live |
 | Internet usage | 🟢 Live |
-| Building / housing footprint | 🟡 Planned |
-| Mobility / traffic activity | 🟡 Planned |
+| Building / housing footprint | 🟢 Live |
+| Mobility / traffic activity | 🟢 Live |
 
 ---
 
@@ -47,9 +47,11 @@ Medium variant, 2010–2024. Used as the official baseline all estimates are mea
 
 | Signal | Indicator |
 |---|---|
-| Telecom | `IT.CEL.SETS.P2` — mobile subscriptions per 100 people |
-| Electricity | `EG.USE.ELEC.KH.PC` — electric power consumption (kWh per capita) |
-| Internet | `IT.NET.USER.ZS` — individuals using the internet (% of population) |
+| Telecom |  **World Bank** (`IT.CEL.SETS.P2`) - mobile subscriptions per 100 people |
+| Electricity |  **World Bank** (`EG.USE.ELEC.KH.PC`) - electric power consumption (kWh per capita) |
+| Internet |  **World Bank** (`IT.NET.USER.ZS`) - individuals using the internet (% of population) |
+| Building | **Microsoft Global ML Building Footprints** - building count per km² |
+| Mobility | **Numbeo Traffic Index** - composite congestion score per country |
 
 ### Country metadata
 World Bank country list (used to filter valid sovereign states and exclude regional aggregates), supplemented by UN location data for coordinates and sub-region classification.
@@ -62,6 +64,8 @@ Raw indicator values are normalized to a 0–100 score per country per year:
 
 - **Telecom / Electricity** — log normalization to compress high-penetration outliers
 - **Internet** — square-root normalization to differentiate the dense 80–99% cluster among developed countries
+- **Building** — log normalization (building density spans several orders of magnitude)
+- **Mobility** — log normalization of Numbeo raw scores (range ~70–350); estimated countries use a linear model on urbanisation %
 - All scores are clamped to [0, 100] and stored alongside the raw value
 
 ---
@@ -72,7 +76,9 @@ Raw indicator values are normalized to a 0–100 score per country per year:
 
 **Signal availability varies by year.** Electricity and internet data tend to lag 1–2 years. Countries with fewer than two available signals fall back to a lower confidence tier.
 
-**Building and mobility signals are not yet implemented.** These require satellite raster processing and mobility dataset access respectively, and are tracked as planned work.
+**Building signal** uses the Microsoft Global ML Building Footprints dataset (~100 countries) with the remainder estimated from land area, urbanisation, and GDP. Estimates from this model are coarser than measured values.
+
+**Mobility signal** scrapes the Numbeo Traffic Index by Country page (89 countries of direct data); the remaining countries are estimated via a linear regression on urbanisation percentage.
 
 **This is not a census replacement.** OSPI estimates are probabilistic. They are most useful for identifying divergence from official figures and tracking demographic trends, not as authoritative population counts.
 
