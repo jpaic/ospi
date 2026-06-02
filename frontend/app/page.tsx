@@ -1,270 +1,131 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
-import dynamic from 'next/dynamic'
-import { DataSourceProvider } from '@/lib/dataSource'
-import { useCountries, useCountriesLoading, fetchBackendCountries } from '@/lib/useCountries'
-import { useDataSource } from '@/lib/dataSource'
-import { sortByDivergence } from '@/lib/estimator'
-import { fmt, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
-import type { Country } from '@/lib/types'
-import { TERRITORY_ISO2 } from '@/lib/territories'
-import Sidebar from '@/components/Sidebar'
-import CountryDetail from '@/components/CountryDetail'
-import DefaultDashboard from '@/components/DefaultDashboard'
-import LoadingOverlay from '@/components/LoadingOverlay'
+import { useEffect, useState } from 'react'
+import Link from 'next/link'
+import { fetchBackendCountries } from '@/lib/useCountries'
+import { fetchVersion } from '@/lib/version'
+import { showNavOverlay } from '@/lib/navigation'
 
-const WorldMap = dynamic(() => import('@/components/WorldMap'), { ssr: false })
-
-function OSPIInner() {
-  const [selected, setSelected] = useState<Country | null>(null)
-  const [query, setQuery] = useState('')
-  const [mapResetKey, setMapResetKey] = useState(0)
-  const [hideTerritories, setHideTerritories] = useState(true)
-
-  const countries = useCountries()
-  const isLoading = useCountriesLoading()
-
-  useEffect(() => {
-    if (process.env.NEXT_PUBLIC_BACKEND_URL) {
-      fetchBackendCountries().catch(() => {})
-    }
-  }, [])
-
-  const visibleCountries = useMemo(
-    () => hideTerritories ? countries.filter(c => !TERRITORY_ISO2.has(c.iso)) : countries,
-    [countries, hideTerritories],
-  )
-
-  const sorted = useMemo(() => sortByDivergence(visibleCountries), [visibleCountries])
-
-  const filtered = useMemo(
-    () => sorted.filter(c => c.name.toLowerCase().includes(query.toLowerCase())),
-    [sorted, query],
-  )
-
-  useEffect(() => {
-    setSelected(null)
-    setMapResetKey(k => k + 1)
-  }, [])
-
-  const handleOverviewReset = () => {
-    setSelected(null)
-    setMapResetKey(k => k + 1)
-  }
-
-  return (
-    <>
-      <LoadingOverlay visible={isLoading} />
-
-      <div className="flex flex-col h-screen bg-white dark:bg-zinc-950 overflow-hidden">
-
-        {/* ── Top bar ── */}
-        <header className="flex items-center gap-3 px-4 h-9 border-b border-zinc-100 dark:border-zinc-800 shrink-0">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-          <span className="text-[11px] font-bold tracking-widest uppercase text-zinc-700 dark:text-zinc-300">
-            OSPI
-          </span>
-          <span className="text-[11px] text-zinc-300 dark:text-zinc-600">
-            Open Signal Population Index
-          </span>
-
-          <div className="ml-auto flex items-center gap-4">
-            <span suppressHydrationWarning className="text-[9px] text-zinc-300 dark:text-zinc-600 uppercase tracking-wider">
-              {visibleCountries.length} countries · 5 signals · UN WPP ·{' '}
-              <a
-                href="https://github.com/jpaic/ospi"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline underline-offset-2 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
-              >
-                Github
-              </a>
-              {' '}· ETL: 2024
-            </span>
-
-            {selected && (
-              <button
-                className="text-[9px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 uppercase tracking-wider transition-colors"
-                onClick={handleOverviewReset}
-                title="Back to overview"
-              >
-                ← overview
-              </button>
-            )}
-          </div>
-        </header>
-
-        {/* ── Body ── */}
-        <div className="flex flex-1 overflow-hidden">
-
-          <Sidebar
-            countries={filtered}
-            selected={selected}
-            onSelect={setSelected}
-            query={query}
-            onSearch={setQuery}
-            hideTerritories={hideTerritories}
-            onToggleTerritories={setHideTerritories}
-          />
-
-          <main className="flex flex-1 overflow-hidden">
-
-            {/* Left panel */}
-            <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
-              {selected
-                ? <CountryDetail country={selected} />
-                : <DefaultDashboard selected={selected} onSelect={setSelected} countries={visibleCountries} />
-              }
-            </div>
-
-            {/* Right map panel */}
-            <div
-              className="shrink-0 flex flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
-              style={{ width: 320 }}
-            >
-              <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between">
-                <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
-                  World map
-                </p>
-                {selected && (
-                  <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">
-                    {selected.name}
-                  </span>
-                )}
-              </div>
-
-              <div style={{ width: 320, height: 320 }} className="shrink-0 overflow-hidden">
-                <WorldMap
-                  countries={visibleCountries}
-                  selected={selected}
-                  onSelect={setSelected}
-                  resetKey={mapResetKey}
-                />
-              </div>
-
-              <div
-                className="flex-1 overflow-y-auto border-t border-zinc-100 dark:border-zinc-800 p-3"
-                style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
-              >
-                {selected ? (
-                  <QuickStats country={selected} />
-                ) : (
-                  <AnomalyList countries={visibleCountries} onSelect={setSelected} />
-                )}
-              </div>
-            </div>
-
-          </main>
-        </div>
-      </div>
-    </>
-  )
+if (typeof window !== 'undefined') {
+  fetchBackendCountries().catch(() => {})
+  fetchVersion()
 }
 
-/* ──────────────────────────────── */
-/* QUICK STATS                      */
-/* ──────────────────────────────── */
+const barDelays = ['0.15s', '0.45s', '0.75s', '1.05s', '1.35s']
 
-function QuickStats({ country: c }: { country: Country }) {
-  const { noSignals } = useDataSource()
+export default function LandingPage() {
+  const [ver, setVer] = useState<any>(null)
+  const [animate, setAnimate] = useState(false)
+
+  useEffect(() => {
+    const el = document.getElementById('ospi-boot-overlay')
+    if (el) el.classList.add('ospi-hidden')
+    fetchVersion().then(setVer)
+    requestAnimationFrame(() => setAnimate(true))
+  }, [])
 
   return (
-    <div className="space-y-2">
-      <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
-        Quick stats
-      </p>
+    <div className="min-h-screen bg-white dark:bg-zinc-950 flex flex-col">
+      <style>{`
+        .lp-bar {
+          transform: scaleY(0);
+          opacity: 0;
+          transition: transform 0.7s ease-out, opacity 0.7s ease-out;
+          transform-origin: bottom;
+        }
+        .lp-bar.animate {
+          transform: scaleY(1);
+          opacity: 1;
+        }
+        .lp-fade  { animation: lp-fade 0.6s ease-out both; }
+        .lp-fade:nth-child(1) { animation-delay: 1.8s; }
+        .lp-fade:nth-child(2) { animation-delay: 2.3s; }
+        @keyframes lp-fade {
+          0%   { opacity: 0; transform: translateY(6px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        .lp-slide { animation: lp-slide 0.6s ease-out both; }
+        .lp-slide:nth-child(1) { animation-delay: 3.8s; }
+        .lp-slide:nth-child(2) { animation-delay: 4.2s; }
+        @keyframes lp-slide {
+          0%   { opacity: 0; transform: translateY(12px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
 
-      {[
-        { label: 'Official', value: fmt(c.official) },
-        { label: 'OSPI est.', value: fmt(c.ospi) },
-        { label: 'Urban', value: c.urbanPct ? `${c.urbanPct.toFixed(2)}%` : '—' },
-        { label: 'Density', value: c.densityKm2 ? fmtDensity(c.densityKm2) : '—' },
-        { label: 'Growth', value: `${fmtPct(c.growthRate, true)}/yr` },
-        { label: 'GDP/cap', value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—' },
-      ].map(r => (
-        <div key={r.label} className="flex justify-between">
-          <span className="text-[10px] text-zinc-400">{r.label}</span>
-          <span className="text-[10px] font-mono text-zinc-700 dark:text-zinc-300">
-            {r.value}
-          </span>
+      <main className="flex-1 flex flex-col items-center justify-center px-4">
+
+        {/* ── Signal bars + wordmark ── */}
+        <div className="flex items-end gap-[3px] h-16 mb-5">
+          {[
+            { h: 18, col: '#1D9E75' },
+            { h: 30, col: '#1D9E75' },
+            { h: 42, col: '#1D9E75' },
+            { h: 54, col: '#1D9E75' },
+            { h: 66, col: '#10b981' },
+          ].map((b, i) => (
+            <div key={i} className={`lp-bar${animate ? ' animate' : ''}`} style={{
+              height: b.h, width: 5, borderRadius: 99,
+              background: b.col, transitionDelay: barDelays[i] as string,
+            }} />
+          ))}
         </div>
-      ))}
 
-      <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-        <p className="text-[9px] uppercase tracking-widest text-zinc-400 mb-1.5">
-          Signals
+        <h1 className="text-sm font-bold tracking-[0.28em] uppercase text-zinc-800 dark:text-zinc-200 mb-0.5">
+          OSPI
+        </h1>
+        <p className="text-[10px] tracking-[0.18em] uppercase text-zinc-400 mb-7">
+          Open Signal Population Index
         </p>
 
-        <div className={noSignals ? 'opacity-40 pointer-events-none' : ''}>
-          {Object.entries(c.signals).map(([k, v]) => (
-            <div key={k} className="flex items-center gap-1.5 mb-1">
-              <span className="text-[9px] text-zinc-400 w-16 capitalize">{k}</span>
-
-              <div className="flex-1 h-0.5 bg-zinc-100 dark:bg-zinc-800 rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${v}%`,
-                    background: v >= 75 ? '#1D9E75' : v >= 50 ? '#EF9F27' : '#E24B4A',
-                  }}
-                />
-              </div>
-
-              <span className="text-[9px] font-mono text-zinc-400">{v}</span>
+        {/* ── Stats line ── */}
+        <div className="lp-fade flex items-center gap-3 mb-6">
+          {[
+            { label: 'Countries', value: ver?.n_countries ?? '—' },
+            { label: 'Signals', value: ver?.n_signals ?? '—' },
+            { label: 'R²', value: ver?.r_squared?.toFixed(4) ?? '—' },
+            { label: 'Run', value: ver?.model_run ?? '—' },
+          ].map((s, i) => (
+            <div key={s.label} className="flex items-center gap-1.5">
+              <span className="text-[9px] uppercase tracking-wider text-zinc-400">{s.label}</span>
+              <span className="text-xs font-semibold font-mono text-zinc-700 dark:text-zinc-300">{s.value}</span>
+              {i < 3 && <span className="text-zinc-200 dark:text-zinc-800 text-[9px]">·</span>}
             </div>
           ))}
         </div>
-      </div>
-    </div>
-  )
-}
 
-/* ──────────────────────────────── */
-/* ANOMALIES                        */
-/* ──────────────────────────────── */
+        {/* ── Description ── */}
+        <p className="lp-fade text-[9px] text-zinc-300 dark:text-zinc-700 leading-relaxed text-center max-w-xs mb-8">
+          Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, building, mobility, and internet signals.
+        </p>
 
-function AnomalyList({ countries, onSelect }: {
-  countries: Country[]
-  onSelect: (c: Country) => void
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-[9px] uppercase tracking-widest text-zinc-400">
-        Top anomalies
-      </p>
-
-      {sortByDivergence(countries).slice(0, 15).map(c => {
-        const d = (c.ospi - c.official) / c.official * 100
-
-        return (
-          <button
-            key={c.name}
-            onClick={() => onSelect(c)}
-            className="w-full flex justify-between text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded px-1.5 py-1"
-          >
-            <span className="text-[10px] truncate">{c.name}</span>
-            <span
-              className="text-[10px] font-mono font-semibold"
-              style={{ color: d >= 0 ? '#1D9E75' : '#E24B4A' }}
-            >
-              {fmtPct(d, true)}
+        {/* ── Nav buttons ── */}
+        <div className="lp-slide flex gap-3">
+          <Link href="/dashboard" onClick={() => showNavOverlay('Dashboard', 'Loading country data…')}
+            className="group relative px-5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:border-emerald-500/50 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-all duration-300">
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+              Dashboard <span className="inline-block transition-transform duration-300 group-hover:translate-x-0.5">→</span>
             </span>
-          </button>
-        )
-      })}
+            <span className="text-[9px] text-zinc-400 block mt-0.5 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors">
+              Explore country data
+            </span>
+          </Link>
+          <Link href="/model" onClick={() => showNavOverlay('Model', 'Loading model diagnostics…')}
+            className="group relative px-5 py-2.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:border-emerald-500/50 hover:bg-emerald-50/50 dark:hover:bg-emerald-950/30 transition-all duration-300">
+            <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400 group-hover:text-emerald-600 dark:group-hover:text-emerald-400 transition-colors">
+              Model <span className="inline-block transition-transform duration-300 group-hover:translate-x-0.5">→</span>
+            </span>
+            <span className="text-[9px] text-zinc-400 block mt-0.5 group-hover:text-zinc-500 dark:group-hover:text-zinc-400 transition-colors">
+              Regression diagnostics
+            </span>
+          </Link>
+        </div>
+
+      </main>
+
+      <footer className="text-center text-[8px] text-zinc-300 dark:text-zinc-700 pb-4">
+        v2.0 · Ridge regression · UN WPP {ver?.etl_year ?? '—'} · 5 signals
+      </footer>
     </div>
-  )
-}
-
-/* ──────────────────────────────── */
-/* ROOT                             */
-/* ──────────────────────────────── */
-
-export default function OSPIPage() {
-  return (
-    <DataSourceProvider>
-      <OSPIInner />
-    </DataSourceProvider>
   )
 }
