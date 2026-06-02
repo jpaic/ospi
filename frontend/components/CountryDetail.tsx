@@ -1,14 +1,15 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Country } from '@/lib/types'
 import { confLabel, confColor } from '@/lib/estimator'
 import { fmt, fmtGap, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
 import { useDataSource } from '@/lib/dataSource'
+import { fetchVersion } from '@/lib/version'
 import type { Chart as ChartType } from 'chart.js'
 
 
-interface Props { country: Country }
+interface Props { country: Country; onBack?: () => void }
 
 const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
   { key: 'telecom', label: 'Telecom' },
@@ -29,8 +30,13 @@ function deltaStr(c: Country): string {
   return (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%'
 }
 
-export default function CountryDetail({ country: c }: Props) {
+export default function CountryDetail({ country: c, onBack }: Props) {
   const { noSignals } = useDataSource()
+  const [modelRun, setModelRun] = useState('—')
+
+  useEffect(() => {
+    fetchVersion().then(v => { if (v?.model_run) setModelRun(v.model_run) })
+  }, [])
 
   const trendRef = useRef<HTMLCanvasElement>(null)
   const radarRef = useRef<HTMLCanvasElement>(null)
@@ -233,15 +239,18 @@ export default function CountryDetail({ country: c }: Props) {
   }, [c, noSignals, isPos])
 
   return (
-    <div
-      className="h-full overflow-y-auto"
-      style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
-    >
-      <style>{`.det-scroll::-webkit-scrollbar{width:3px}.det-scroll::-webkit-scrollbar-track{background:transparent}.det-scroll::-webkit-scrollbar-thumb{background:rgba(113,113,122,0.2);border-radius:99px}.det-scroll::-webkit-scrollbar-thumb:hover{background:rgba(113,113,122,0.4)}`}</style>
-      <div className="det-scroll h-full overflow-y-auto">
+    <div className="h-full overflow-hidden">
+      <div className="h-full overflow-hidden">
         <div className="p-4 space-y-4">
 
           {/* ── Header ── */}
+          {onBack && (
+            <button onClick={onBack}
+              className="text-[9px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 uppercase tracking-wider transition-colors flex items-center gap-1">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+              back to overview
+            </button>
+          )}
           <div className="flex items-start justify-between">
             <div>
               <div className="flex items-center gap-2">
@@ -434,7 +443,7 @@ export default function CountryDetail({ country: c }: Props) {
               OSPI estimates are probabilistic models derived from weighted signal indicators.
               Historical population data sourced from UN WPP (Medium variant, both sexes).
               Confidence reflects data source reliability. Estimates should not be treated as official counts.
-              Last model run: <span className="font-mono">2024-Q2</span>.
+               Last model run: <span className="font-mono">{modelRun}</span>.
               {noSignals && ' · Signal data not yet available — OSPI mirrors official figures until your model runs.'}
             </p>
           </div>

@@ -5,6 +5,7 @@ import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtGap, fmtPct } from '@/lib/fmt'
+import { fetchVersion } from '@/lib/version'
 import type { Chart as ChartType } from 'chart.js'
 import type { Country } from '@/lib/types'
 
@@ -98,6 +99,12 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
   const allCountries = useCountries()
   const countries = propCountries ?? allCountries
   const { noSignals } = useDataSource()
+
+  const [modelRun, setModelRun] = useState('—')
+
+  useEffect(() => {
+    fetchVersion().then(v => { if (v?.model_run) setModelRun(v.model_run) })
+  }, [])
 
   const barRef = useRef<HTMLCanvasElement>(null)
   const scatterRef = useRef<HTMLCanvasElement>(null)
@@ -387,7 +394,7 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
           <div>
             <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 tracking-tight">Global Population Intelligence</h2>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Signal-based population estimates across {countries.length} countries · Select any country for detailed analysis · Model run: 2024-Q2
+              Signal-based population estimates across {countries.length} countries · Select any country for detailed analysis · Model run: {modelRun}
             </p>
           </div>
 
