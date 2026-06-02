@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
 
 interface ModelStatus {
   trained:      boolean
@@ -347,6 +348,14 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
               ? 'v2: log-linear Ridge regression (RidgeCV, 5-fold). Estimates census-free from infrastructure signals only.'
               : 'v1: correction-factor fallback. Run schema patches + retrain to activate v2.'}
           </p>
+
+          {/* Link to full showcase */}
+          <Link
+            href="/model"
+            className="block text-center text-[9px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-medium transition-colors pt-1"
+          >
+            Full details &rarr;
+          </Link>
         </div>
       )}
     </div>

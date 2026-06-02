@@ -41,7 +41,7 @@ export default function RootLayout({
             background: rgba(255,255,255,0.72);
             backdrop-filter: blur(18px) saturate(1.6);
             -webkit-backdrop-filter: blur(18px) saturate(1.6);
-            transition: opacity 0.7s cubic-bezier(0.4,0,0.2,1);
+
           }
           @media (prefers-color-scheme: dark) {
             #ospi-boot-overlay { background: rgba(9,9,11,0.78); }
@@ -130,11 +130,11 @@ export default function RootLayout({
             ))}
           </div>
           <p className="ospi-boot-wordmark">OSPI</p>
-          <p className="ospi-boot-sub">Open Signal Population Index</p>
+          <p id="ospi-overlay-title" className="ospi-boot-sub">Open Signal Population Index</p>
           <div className="ospi-boot-track">
             <div className="ospi-boot-shimmer" />
           </div>
-          <p className="ospi-boot-label">Fetching population signals…</p>
+          <p id="ospi-overlay-subtitle" className="ospi-boot-label">Fetching population signals…</p>
         </div>
 
         {children}
