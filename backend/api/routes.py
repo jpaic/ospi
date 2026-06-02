@@ -162,6 +162,163 @@ def get_latest_model_info() -> dict | None:
             return dict(zip(cols, row))
 
 
+# ── Details cache (recomputed once per model_id) ──────────────────────────────
+
+_details_cache: dict[int, dict] = {}
+
+def invalidate_details_cache() -> None:
+    _details_cache.clear()
+
+def _build_details(model_id: int) -> dict:
+    """
+    Build the full /model/details response for a given model_id.
+    Separated so the retrain endpoints can invalidate the cache.
+    """
+    import numpy as np
+    from services.estimator import estimate_population_bulk
+    from etl.training.evaluate import coverage_distribution, run_cross_val_diagnostics, compute_feature_importance
+
+    if model_id in _details_cache:
+        return _details_cache[model_id]
+
+    # 1. Model info
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM model_weights WHERE id = %s", (model_id,))
+            row = cur.fetchone()
+            if not row:
+                return {"trained": False}
+            cols = [desc[0] for desc in cur.description]
+            model = dict(zip(cols, row))
+
+    # 2. Training countries from model_residuals
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, residual FROM model_residuals WHERE model_id = %s",
+                (model_id,),
+            )
+            residual_data = {r[0]: float(r[1]) for r in cur.fetchall()}
+
+    training_iso2s = list(residual_data.keys())
+
+    # 3. Names
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, name FROM country_metadata WHERE iso2 = ANY(%s)",
+                (training_iso2s,),
+            )
+            names = {r[0]: r[1] for r in cur.fetchall()}
+
+    # 4. Estimates for training countries
+    estimates = estimate_population_bulk(training_iso2s)
+
+    # 5. Scatter + outliers
+    scatter = []
+    for iso2 in training_iso2s:
+        est = estimates.get(iso2, {})
+        official = est.get("official")
+        ospi = est.get("estimate")
+        residual = residual_data.get(iso2, 0)
+        name = names.get(iso2, iso2)
+        if official is None or ospi is None:
+            continue
+        scatter.append({
+            "iso2": iso2,
+            "name": name,
+            "official": official,
+            "ospi": ospi,
+            "residual": round(residual, 4),
+            "residual_pct": round(abs(ospi - official) / official * 100, 2) if official else 0,
+        })
+
+    scatter.sort(key=lambda x: x["official"])
+    outliers = sorted(scatter, key=lambda x: x["residual"], reverse=True)[:10]
+
+    # 6. Residual histogram
+    all_residuals = [d["residual"] for d in scatter]
+    if all_residuals:
+        hist_counts, hist_edges = np.histogram(all_residuals, bins=20)
+        residual_mean = float(np.mean(all_residuals))
+        residual_std = float(np.std(all_residuals))
+        residual_p95 = float(np.percentile(all_residuals, 95))
+        residual_p99 = float(np.percentile(all_residuals, 99))
+    else:
+        hist_counts = hist_edges = np.array([])
+        residual_mean = residual_std = residual_p95 = residual_p99 = 0
+
+    # 7. Confidence distribution
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT source_confidence, COUNT(*)
+                FROM populations
+                WHERE source_confidence IS NOT NULL
+                GROUP BY source_confidence
+            """)
+            conf_rows = cur.fetchall()
+
+    conf_counts = dict(conf_rows)
+    confidence = {
+        "high": conf_counts.get("high", 0),
+        "med": conf_counts.get("med", 0),
+        "low": conf_counts.get("low", 0),
+        "unknown": conf_counts.get("unknown", 0),
+    }
+    confidence["total"] = sum(confidence.values())
+
+    # 8. Coverage distribution
+    cov = coverage_distribution()
+
+    # 9. CV diagnostics
+    cv = run_cross_val_diagnostics()
+
+    # 10. Feature importance
+    fi = compute_feature_importance(model_id)
+    feature_importance = [
+        {"feature": k, "coefficient": v}
+        for k, v in fi.get("coefficients", {}).items()
+    ]
+
+    result = {
+        "trained": True,
+        "model": {
+            "model_id": model["id"],
+            "trained_at": str(model["trained_at"]),
+            "r_squared": model.get("r_squared"),
+            "cv_r_squared": model.get("cv_r_squared"),
+            "n_training": model.get("n_training"),
+            "intercept": model.get("intercept"),
+            "coefficients": {
+                k: model.get(k)
+                for k in ["telecom", "electricity", "building", "mobility", "internet", "log_area_km2", "signal_count"]
+            },
+            "region_coefs": model.get("region_coefs"),
+        },
+        "training_scatter": scatter,
+        "residual_histogram": {
+            "bins": hist_edges.tolist(),
+            "counts": hist_counts.tolist(),
+            "mean": round(residual_mean, 4),
+            "std": round(residual_std, 4),
+            "p95": round(residual_p95, 4),
+            "p99": round(residual_p99, 4),
+            "min": round(min(all_residuals), 4) if all_residuals else 0,
+            "max": round(max(all_residuals), 4) if all_residuals else 0,
+            "n": len(all_residuals),
+        },
+        "outliers": outliers,
+        "confidence": confidence,
+        "coverage": cov,
+        "cv": cv,
+        "feature_importance": feature_importance,
+    }
+
+    _details_cache[model_id] = result
+    return result
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/countries")
@@ -266,6 +423,15 @@ def get_country(iso2: str):
 
 # ── Model status ──────────────────────────────────────────────────────────────
 
+@app.get("/model/details")
+def model_details():
+    """Full model showcase — cached response, recomputed once per model_id."""
+    model = get_latest_model_info()
+    if not model:
+        return {"trained": False}
+    return _build_details(model["id"])
+
+
 @app.get("/model/status")
 def model_status():
     """
@@ -303,6 +469,39 @@ def model_status():
     }
 
 
+@app.get("/model/version")
+def model_version():
+    """Lightweight version metadata for the frontend landing page and date labels."""
+    model = get_latest_model_info()
+    if not model:
+        return {
+            "etl_year": 2024,
+            "model_run": None,
+            "model_id": None,
+            "r_squared": None,
+            "n_countries": None,
+            "n_signals": 5,
+        }
+
+    trained_at = model["trained_at"]
+    quarter = (trained_at.month - 1) // 3 + 1
+    model_run = f"{trained_at.year}-Q{quarter}"
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(DISTINCT iso2) FROM signals")
+            n_countries = cur.fetchone()[0]
+
+    return {
+        "etl_year": 2024,
+        "model_run": model_run,
+        "model_id": model["id"],
+        "r_squared": model.get("r_squared"),
+        "n_countries": n_countries,
+        "n_signals": 5,
+    }
+
+
 # ── Admin endpoints ───────────────────────────────────────────────────────────
 
 @app.post("/admin/retrain")
@@ -322,10 +521,13 @@ async def admin_retrain(request: Request, background_tasks: BackgroundTasks):
         from etl.jobs import run_model_training
         try:
             result = run_model_training()
+            invalidate_details_cache()
             print(f"[retrain] Background job completed: {result}")
         except Exception as e:
             print(f"[retrain] Background job failed: {e}")
 
+    # Invalidate before queuing so stale cache from previous model_id isn't served
+    invalidate_details_cache()
     background_tasks.add_task(_do_retrain)
     return {"status": "accepted", "message": "Retrain job queued. Poll /model/status for progress."}
 
@@ -340,6 +542,7 @@ async def admin_retrain_sync(request: Request):
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    invalidate_details_cache()
     try:
         from etl.jobs import run_model_training
         result = run_model_training()
