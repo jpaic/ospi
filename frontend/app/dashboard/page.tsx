@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import { DataSourceProvider } from '@/lib/dataSource'
 import { useCountries, useCountriesLoading, fetchBackendCountries } from '@/lib/useCountries'
@@ -13,7 +13,7 @@ import Sidebar from '@/components/Sidebar'
 import CountryDetail from '@/components/CountryDetail'
 import DefaultDashboard from '@/components/DefaultDashboard'
 import NavHeader from '@/components/NavHeader'
-import { showNavOverlay, hideNavOverlay } from '@/lib/navigation'
+import { hideNavOverlay } from '@/lib/navigation'
 
 const WorldMap = dynamic(() => import('@/components/WorldMap'), { ssr: false })
 
@@ -48,12 +48,10 @@ function OSPIInner() {
     [sorted, query],
   )
 
+  const mountDone = useRef(false)
   useEffect(() => {
-    setSelected(null)
-    setMapResetKey(k => k + 1)
-  }, [])
-
-  const handleOverviewReset = useCallback(() => {
+    if (mountDone.current) return
+    mountDone.current = true
     setSelected(null)
     setMapResetKey(k => k + 1)
   }, [])

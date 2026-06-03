@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
 
 interface ModelStatus {
@@ -91,17 +91,19 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
       const data: ModelStatus = await res.json()
       setStatus(data)
       setError(null)
-    } catch (e) {
+    } catch {
       setError('Could not reach backend')
     } finally {
       setLoading(false)
     }
   }, [base])
 
+  const initDone = useRef(false)
   useEffect(() => {
-    fetchStatus()
-    // Refresh every 30 s to catch background retrains
-    const t = setInterval(fetchStatus, 30_000)
+    if (initDone.current) return
+    initDone.current = true
+    fetchStatus().catch(() => {})
+    const t = setInterval(() => { fetchStatus().catch(() => {}) }, 30_000)
     return () => clearInterval(t)
   }, [fetchStatus])
 
@@ -124,8 +126,8 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
       )
       await fetchStatus()
       onRetrainComplete?.()
-    } catch (e: any) {
-      setRetrainResult(`✗ ${e.message}`)
+    } catch (err) {
+      setRetrainResult(`✗ ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRetraining(false)
     }
@@ -361,3 +363,4 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
     </div>
   )
 }
+
