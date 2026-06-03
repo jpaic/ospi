@@ -1,7 +1,10 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import type { GeoProjection, GeoPath, GeoPermissibleObjects } from 'd3-geo'
+import type { Feature, FeatureCollection } from 'geojson'
 import type { Country } from '@/lib/types'
+import { nameToIso, normalizeRotDelta } from '@/components/WorldMap/constants'
 
 interface Props {
   countries: Country[]
@@ -10,292 +13,46 @@ interface Props {
   resetKey?: number
 }
 
-// ISO 3166-1 numeric IDs used by world-atlas countries-110m.json
-const NAME_TO_ISO: Record<string, number> = {
-  // A
-  'afghanistan': 4,
-  'albania': 8,
-  'algeria': 12,
-  'andorra': 20,
-  'angola': 24,
-  'antigua and barbuda': 28,
-  'argentina': 32,
-  'armenia': 51,
-  'australia': 36,
-  'austria': 40,
-  'azerbaijan': 31,
-  // B
-  'bahamas': 44,
-  'bahrain': 48,
-  'bangladesh': 50,
-  'barbados': 52,
-  'belarus': 112,
-  'belgium': 56,
-  'belize': 84,
-  'benin': 204,
-  'bhutan': 64,
-  'bolivia': 68,
-  'bolivia (plurinational state of)': 68,
-  'bosnia and herzegovina': 70,
-  'botswana': 72,
-  'brazil': 76,
-  'brunei': 96,
-  'brunei darussalam': 96,
-  'bulgaria': 100,
-  'burkina faso': 854,
-  'burundi': 108,
-  // C
-  'cabo verde': 132,
-  'cambodia': 116,
-  'cameroon': 120,
-  'canada': 124,
-  'central african republic': 140,
-  'chad': 148,
-  'chile': 152,
-  'china': 156,
-  'colombia': 170,
-  'comoros': 174,
-  'congo': 178,
-  'costa rica': 188,
-  "côte d'ivoire": 384,
-  'ivory coast': 384,
-  'croatia': 191,
-  'cuba': 192,
-  'cyprus': 196,
-  'czech republic': 203,
-  'czechia': 203,
-  // D
-  "dem. people's rep. of korea": 408,
-  'democratic republic of the congo': 180,
-  'denmark': 208,
-  'djibouti': 262,
-  'dominica': 212,
-  'dominican republic': 214,
-  // E
-  'ecuador': 218,
-  'egypt': 818,
-  'el salvador': 222,
-  'equatorial guinea': 226,
-  'eritrea': 232,
-  'estonia': 233,
-  'eswatini': 748,
-  'ethiopia': 231,
-  // F
-  'fiji': 242,
-  'finland': 246,
-  'france': 250,
-  // G
-  'gabon': 266,
-  'gambia': 270,
-  'georgia': 268,
-  'germany': 276,
-  'ghana': 288,
-  'greece': 300,
-  'grenada': 308,
-  'guatemala': 320,
-  'guinea': 324,
-  'guinea-bissau': 624,
-  'guyana': 328,
-  // H
-  'haiti': 332,
-  'honduras': 340,
-  'hungary': 348,
-  // I
-  'iceland': 352,
-  'india': 356,
-  'indonesia': 360,
-  'iran': 364,
-  'iran (islamic republic of)': 364,
-  'iraq': 368,
-  'ireland': 372,
-  'israel': 376,
-  'italy': 380,
-  // J
-  'jamaica': 388,
-  'japan': 392,
-  'jordan': 400,
-  // K
-  'kazakhstan': 398,
-  'kenya': 404,
-  'kiribati': 296,
-  'kosovo': 383,
-  'kosovo (under unsc res. 1244)': 383,
-  'kuwait': 414,
-  'kyrgyzstan': 417,
-  // L
-  'laos': 418,
-  "lao people's democratic republic": 418,
-  'latvia': 428,
-  'lebanon': 422,
-  'lesotho': 426,
-  'liberia': 430,
-  'libya': 434,
-  'liechtenstein': 438,
-  'lithuania': 440,
-  'luxembourg': 442,
-  // M
-  'madagascar': 450,
-  'malawi': 454,
-  'malaysia': 458,
-  'maldives': 462,
-  'mali': 466,
-  'malta': 470,
-  'marshall islands': 584,
-  'mauritania': 478,
-  'mauritius': 480,
-  'mexico': 484,
-  'micronesia': 583,
-  'moldova': 498,
-  'republic of moldova': 498,
-  'monaco': 492,
-  'mongolia': 496,
-  'montenegro': 499,
-  'morocco': 504,
-  'mozambique': 508,
-  'myanmar': 104,
-  // N
-  'namibia': 516,
-  'nauru': 520,
-  'nepal': 524,
-  'netherlands': 528,
-  'new zealand': 554,
-  'nicaragua': 558,
-  'niger': 562,
-  'nigeria': 566,
-  'north korea': 408,
-  'north macedonia': 807,
-  'norway': 578,
-  // O
-  'oman': 512,
-  // P
-  'pakistan': 586,
-  'palau': 585,
-  'panama': 591,
-  'papua new guinea': 598,
-  'paraguay': 600,
-  'peru': 604,
-  'philippines': 608,
-  'poland': 616,
-  'portugal': 620,
-  // Q
-  'qatar': 634,
-  // R
-  'republic of korea': 410,
-  'romania': 642,
-  'russia': 643,
-  'russian federation': 643,
-  'rwanda': 646,
-  // S
-  'saint kitts and nevis': 659,
-  'saint lucia': 662,
-  'saint vincent and the grenadines': 670,
-  'samoa': 882,
-  'san marino': 674,
-  'sao tome and principe': 678,
-  'saudi arabia': 682,
-  'senegal': 686,
-  'serbia': 688,
-  'seychelles': 690,
-  'sierra leone': 694,
-  'singapore': 702,
-  'slovakia': 703,
-  'slovenia': 705,
-  'solomon islands': 90,
-  'somalia': 706,
-  'south africa': 710,
-  'south korea': 410,
-  'south sudan': 728,
-  'spain': 724,
-  'sri lanka': 144,
-  'state of palestine': 275,
-  'sudan': 729,
-  'suriname': 740,
-  'sweden': 752,
-  'switzerland': 756,
-  'syria': 760,
-  'syrian arab republic': 760,
-  // T
-  'taiwan': 158,
-  'china, taiwan province of china': 158,
-  'tajikistan': 762,
-  'tanzania': 834,
-  'united republic of tanzania': 834,
-  'thailand': 764,
-  'timor-leste': 626,
-  'togo': 768,
-  'tonga': 776,
-  'trinidad and tobago': 780,
-  'tunisia': 788,
-  'turkey': 792,
-  'türkiye': 792,
-  'turkmenistan': 795,
-  'tuvalu': 798,
-  // U
-  'uganda': 800,
-  'ukraine': 804,
-  'united arab emirates': 784,
-  'uae': 784,
-  'united kingdom': 826,
-  'uk': 826,
-  'united states': 840,
-  'usa': 840,
-  'united states of america': 840,
-  'uruguay': 858,
-  'uzbekistan': 860,
-  // V
-  'vanuatu': 548,
-  'venezuela': 862,
-  'venezuela (bolivarian republic of)': 862,
-  'vietnam': 704,
-  'viet nam': 704,
-  // Y
-  'yemen': 887,
-  // Z
-  'zambia': 894,
-  'zimbabwe': 716,
+interface AnnotatedPath extends SVGPathElement {
+  __feature__?: Feature
 }
 
-function nameToIso(name: string): number | null {
-  const lower = name.toLowerCase().trim()
-  if (NAME_TO_ISO[lower] != null) return NAME_TO_ISO[lower]
-  // Partial match fallback
-  for (const [k, v] of Object.entries(NAME_TO_ISO)) {
-    if (lower.includes(k) || k.includes(lower)) return v
-  }
-  return null
+interface AnnotatedGratPath extends SVGPathElement {
+  __grat__?: GeoPermissibleObjects
 }
 
-// Normalize a rotation delta to [-180, 180] so animations always
-// take the shortest arc around the globe.
-function normalizeRotDelta(delta: number): number {
-  let d = delta % 360
-  if (d > 180) d -= 360
-  if (d < -180) d += 360
-  return d
-}
+type TopoJson = { objects: { countries: { type: 'Topology'; geometries: [] } } }
 
 export default function WorldMap({ countries, selected, onSelect, resetKey }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
-  const projRef = useRef<any>(null)
-  const pathGenRef = useRef<any>(null)
+  const projRef = useRef<GeoProjection | null>(null)
+  const pathGenRef = useRef<GeoPath | null>(null)
   const curKRef = useRef<number>(1)
   const curTyRef = useRef<number>(0)
   const curRotRef = useRef<number>(0)
   const initDoneRef = useRef(false)
-  const selectedRef = useRef<Country | null>(selected)
-  const countriesRef = useRef<Country[]>(countries)
-  const onSelectRef = useRef(onSelect)
+  const selectedRef = useRef<Country | null>(null)
+  const countriesRef = useRef<Country[]>([])
+  const onSelectRef = useRef<(c: Country) => void>(() => {})
   const animFrameRef = useRef<number | null>(null)
   const mapGRef = useRef<SVGGElement | null>(null)
   const clampTyRef = useRef<(ty: number, k: number) => number>(() => 0)
   const sizeRef = useRef<{ W: number; H: number }>({ W: 320, H: 320 })
-  const featurePathsRef = useRef<Map<number, SVGPathElement>>(new Map())
+  const featurePathsRef = useRef<Map<number, AnnotatedPath>>(new Map())
 
-  selectedRef.current = selected
-  countriesRef.current = countries
-  onSelectRef.current = onSelect
+  useEffect(() => {
+    selectedRef.current = selected
+  }, [selected])
 
-  const drawMarkers = (proj: any, k = 1) => {
+  useEffect(() => {
+    countriesRef.current = countries
+  }, [countries])
+
+  useEffect(() => {
+    onSelectRef.current = onSelect
+  }, [onSelect])
+
+  const drawMarkers = (proj: GeoProjection, k = 1) => {
     const svg = svgRef.current
     if (!svg) return
     const layer = svg.querySelector('#marker-layer') as SVGGElement
@@ -372,7 +129,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     })
   }
 
-  const drawHighlight = (proj: any, sel: Country | null) => {
+  const drawHighlight = (sel: Country | null) => {
     const svg = svgRef.current
     if (!svg) return
     const layer = svg.querySelector('#highlight-layer') as SVGGElement | null
@@ -383,9 +140,9 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const isoId = nameToIso(sel.name)
     if (isoId == null) return
 
-    const featurePath = featurePathsRef.current.get(isoId)
+    const featurePath = featurePathsRef.current.get(isoId) as AnnotatedPath | undefined
     if (!featurePath) return
-    const feature = (featurePath as any).__feature__
+    const feature = featurePath.__feature__
     if (!feature) return
 
     const pathGen = pathGenRef.current
@@ -417,16 +174,16 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const svg = svgRef.current
     const pathGen = pathGenRef.current
     if (!svg || !pathGen) return
-    svg.querySelectorAll('#land-layer path').forEach(p => {
-      const f = (p as any).__feature__
+    svg.querySelectorAll<AnnotatedPath>('#land-layer path').forEach(p => {
+      const f = p.__feature__
       if (f) p.setAttribute('d', pathGen(f) ?? '')
     })
-    const gratPath = svg.querySelector('#grat-path') as SVGPathElement | null
+    const gratPath = svg.querySelector<AnnotatedGratPath>('#grat-path')
     if (gratPath) {
-      const grat = (gratPath as any).__grat__
+      const grat = gratPath.__grat__
       if (grat) gratPath.setAttribute('d', pathGen(grat) ?? '')
     }
-    drawHighlight(projRef.current, selectedRef.current)
+    if (projRef.current) drawHighlight(selectedRef.current)
   }
 
   const applyTransform = (mapG: SVGGElement, W: number, H: number, k: number, ty: number) => {
@@ -453,8 +210,8 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     const START_ROT = curRotRef.current
 
     const isoId = nameToIso(country.name)
-    const featurePath = isoId != null ? featurePathsRef.current.get(isoId) : null
-    const feature = (featurePath as any)?.__feature__
+    const featurePath = isoId != null ? featurePathsRef.current.get(isoId) as AnnotatedPath | undefined : undefined
+    const feature = featurePath?.__feature__
 
     // Calculate target rotation (center country horizontally)
     const targetRot = -country.lng
@@ -514,7 +271,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
       redrawPaths()
       applyTransform(mapG, W, H, k, ty)
       drawMarkers(proj, k)
-      drawHighlight(proj, selectedRef.current)
+      drawHighlight(selectedRef.current)
 
       if (t < 1) {
         animFrameRef.current = requestAnimationFrame(tick)
@@ -568,7 +325,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
       redrawPaths()
       applyTransform(mapG, W, H, k, ty)
       drawMarkers(proj, k)
-      drawHighlight(proj, selectedRef.current)
+      drawHighlight(selectedRef.current)
 
       if (t < 1) {
         animFrameRef.current = requestAnimationFrame(tick)
@@ -585,6 +342,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
     if (initDoneRef.current) {
       resetMap()
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetKey])
 
   useEffect(() => {
@@ -660,18 +418,18 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
         const graticule = d3.geoGraticule()()
         const gratPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
         gratPath.id = 'grat-path'
-          ; (gratPath as any).__grat__ = graticule
+          ; (gratPath as AnnotatedGratPath).__grat__ = graticule
         gratPath.setAttribute('d', pathGen(graticule) ?? '')
         gratPath.setAttribute('fill', 'none')
         gratPath.setAttribute('stroke', gratCol)
         gratPath.setAttribute('stroke-width', '0.4')
         gratLayer.appendChild(gratPath)
 
-        const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as any
-        const feats = (topo.feature(world, world.objects.countries) as any).features
-        feats.forEach((f: any) => {
-          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-            ; (p as any).__feature__ = f
+        const world = await d3.json<TopoJson>('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as unknown as TopoJson
+        const feats = (topo.feature(world, world.objects.countries) as FeatureCollection).features as Feature[]
+        feats.forEach((f: Feature) => {
+          const p = document.createElementNS('http://www.w3.org/2000/svg', 'path') as AnnotatedPath
+          p.__feature__ = f
           p.setAttribute('d', pathGen(f) ?? '')
           p.setAttribute('fill', landCol)
           p.setAttribute('stroke', borderCol)
@@ -708,7 +466,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
           curTyRef.current = newTy
           applyTransform(mapG, W, H, newK, newTy)
           drawMarkers(proj, newK)
-          drawHighlight(proj, selectedRef.current)
+          drawHighlight(selectedRef.current)
         }
 
         const onMouseDown = (e: MouseEvent) => {
@@ -734,7 +492,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
           curTyRef.current = newTy
           applyTransform(mapG, W, H, curKRef.current, newTy)
           drawMarkers(proj, curKRef.current)
-          drawHighlight(proj, selectedRef.current)
+          drawHighlight(selectedRef.current)
         }
 
         const onMouseUp = () => {
@@ -775,7 +533,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
             curTyRef.current = newTy
             applyTransform(mapG, W, H, curKRef.current, newTy)
             drawMarkers(proj, curKRef.current)
-            drawHighlight(proj, selectedRef.current)
+            drawHighlight(selectedRef.current)
           } else if (e.touches.length === 2) {
             const dx = e.touches[1].clientX - e.touches[0].clientX
             const dy = e.touches[1].clientY - e.touches[0].clientY
@@ -788,7 +546,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
             curTyRef.current = newTy
             applyTransform(mapG, W, H, newK, newTy)
             drawMarkers(proj, newK)
-            drawHighlight(proj, selectedRef.current)
+            drawHighlight(selectedRef.current)
           }
         }
 
@@ -838,7 +596,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
           curTyRef.current = newTy
           applyTransform(mapG, W, H, newK, newTy)
           drawMarkers(proj, newK)
-          drawHighlight(proj, selectedRef.current)
+          drawHighlight(selectedRef.current)
         }
 
         mkBtn('+', 8, () => zoomBy(1.7))
@@ -867,7 +625,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
       }
 
       drawMarkers(projRef.current, curKRef.current)
-      drawHighlight(projRef.current, selectedRef.current)
+      drawHighlight(selectedRef.current)
     }
 
     run()
@@ -883,14 +641,13 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
   useEffect(() => {
     if (!projRef.current) return
     drawMarkers(projRef.current, curKRef.current)
-    drawHighlight(projRef.current, selected)
+    drawHighlight(selected)
     if (selected) zoomToCountry(selected)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected])
 
   useEffect(() => {
     if (projRef.current) drawMarkers(projRef.current, curKRef.current)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [countries])
 
   return (
