@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import NavHeader from '@/components/NavHeader'
 import { hideNavOverlay, showNavOverlay } from '@/lib/navigation'
 import { cacheGet, cacheSet } from '@/lib/cache'
-import type { DetailsResponse } from './types'
+import type { DetailsResponse, Histogram } from './types'
 import { StatCard, SectionHeader } from './statCard'
 import { ScatterPlot, HistogramChart, DistBar, FeatureBars } from './charts'
 import { OutliersTable, RegionCoefs } from './tables'
@@ -77,6 +77,34 @@ export default function ModelPage() {
     return () => window.removeEventListener('popstate', handlePop)
   }, [])
 
+  const [showSigned, setShowSigned] = useState(false)
+
+  const signedHist = useMemo(() => {
+    const scatter = data?.training_scatter
+    if (!scatter || scatter.length === 0) return null
+    const residuals = scatter.map(d => {
+      const o = Math.max(d.official, 1), e = Math.max(d.ospi, 1)
+      return Math.log(e) - Math.log(o)
+    })
+    const min = Math.min(...residuals), max = Math.max(...residuals)
+    const bins = 20, binWidth = (max - min) / bins
+    const binEdges = Array.from({ length: bins + 1 }, (_, i) => min + i * binWidth)
+    const counts = new Array(bins).fill(0)
+    for (const r of residuals) {
+      counts[Math.min(Math.floor((r - min) / binWidth), bins - 1)]++
+    }
+    const n = residuals.length
+    const mean = residuals.reduce((a, b) => a + b, 0) / n
+    const variance = residuals.reduce((a, b) => a + (b - mean) ** 2, 0) / n
+    const sorted = [...residuals].sort((a, b) => a - b)
+    return {
+      bins: binEdges, counts,
+      mean, std: Math.sqrt(variance),
+      p95: sorted[Math.floor(0.95 * n)], p99: sorted[Math.floor(0.99 * n)],
+      min, max, n,
+    } as Histogram
+  }, [data?.training_scatter])
+
   if (!ready) {
     return (
       <div className="min-h-screen bg-white dark:bg-zinc-950 flex flex-col items-center justify-center gap-0">
@@ -127,6 +155,8 @@ export default function ModelPage() {
   const cov = data.coverage!
   const cv = data.cv!
 
+  const activeHist = showSigned && signedHist ? signedHist : hist
+
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-950">
       <NavHeader active="model" />
@@ -149,20 +179,20 @@ export default function ModelPage() {
 
         <section>
           <SectionHeader title="Residual distribution"
-            subtitle={`Log-scale absolute residuals · n=${hist.n} · σ=${hist.std.toFixed(4)}`} />
+            subtitle={`${showSigned ? 'Signed log residuals' : 'Log-scale absolute residuals'} · n=${activeHist.n} · σ=${activeHist.std.toFixed(4)}`} />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800 p-4">
-              <HistogramChart data={hist} />
+              <HistogramChart data={activeHist} showSigned={showSigned} onToggleSigned={() => setShowSigned(v => !v)} />
             </div>
             <div className="space-y-2">
               {[
-                { label: 'Mean', value: hist.mean.toFixed(4) },
-                { label: 'Std dev', value: hist.std.toFixed(4) },
-                { label: 'p50', value: (hist.bins.length > 0 ? hist.bins[Math.floor(hist.counts.length / 2)]?.toFixed(4) : '—') },
-                { label: 'p95', value: hist.p95.toFixed(4) },
-                { label: 'p99', value: hist.p99.toFixed(4) },
-                { label: 'Min', value: hist.min.toFixed(4) },
-                { label: 'Max', value: hist.max.toFixed(4) },
+                { label: 'Mean', value: activeHist.mean.toFixed(4) },
+                { label: 'Std dev', value: activeHist.std.toFixed(4) },
+                { label: 'p50', value: (activeHist.bins.length > 0 ? activeHist.bins[Math.floor(activeHist.counts.length / 2)]?.toFixed(4) : '—') },
+                { label: 'p95', value: activeHist.p95.toFixed(4) },
+                { label: 'p99', value: activeHist.p99.toFixed(4) },
+                { label: 'Min', value: activeHist.min.toFixed(4) },
+                { label: 'Max', value: activeHist.max.toFixed(4) },
               ].map(s => (
                 <div key={s.label} className="flex justify-between items-center px-3 py-1.5 rounded bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
                   <span className="text-[10px] text-zinc-400 uppercase tracking-wider">{s.label}</span>
