@@ -14,7 +14,13 @@ if (typeof window !== 'undefined') {
 const barDelays = ['0.15s', '0.45s', '0.75s', '1.05s', '1.35s']
 
 export default function LandingPage() {
-  const [ver, setVer] = useState<any>(null)
+  const [ver, setVer] = useState<{
+    etl_year: number
+    model_run: string | null
+    r_squared: number | null
+    n_countries: number | null
+    n_signals: number
+  } | null>(null)
   const [animate, setAnimate] = useState(false)
 
   useEffect(() => {

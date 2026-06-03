@@ -6,7 +6,13 @@ let _versionData: {
   n_signals: number
 } | null = null
 
-let _versionPromise: Promise<any> | null = null
+let _versionPromise: Promise<{
+  etl_year: number
+  model_run: string | null
+  r_squared: number | null
+  n_countries: number | null
+  n_signals: number
+} | null> | null = null
 
 export async function fetchVersion() {
   if (_versionData) return _versionData

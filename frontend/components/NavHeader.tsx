@@ -16,10 +16,10 @@ export default function NavHeader({ active }: Props) {
         OSPI
       </span>
       <nav className="flex items-center gap-1 mx-auto">
-        <Link href="/dashboard" onClick={() => showNavOverlay('Dashboard', 'Loading country data…')} className={`${linkBase} ${active === 'dashboard' ? linkActive : linkInactive}`}>
+        <Link href="/dashboard" onClick={() => active !== 'dashboard' && showNavOverlay('Dashboard', 'Loading country data…')} className={`${linkBase} ${active === 'dashboard' ? linkActive : linkInactive}`}>
           Dashboard
         </Link>
-        <Link href="/model" onClick={() => showNavOverlay('Model', 'Loading model diagnostics…')} className={`${linkBase} ${active === 'model' ? linkActive : linkInactive}`}>
+        <Link href="/model" onClick={() => active !== 'model' && showNavOverlay('Model', 'Loading model diagnostics…')} className={`${linkBase} ${active === 'model' ? linkActive : linkInactive}`}>
           Model
         </Link>
       </nav>

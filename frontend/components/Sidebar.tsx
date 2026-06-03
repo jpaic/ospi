@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import type { Country } from '@/lib/types'
-import { confLabel, confColor, globalStats } from '@/lib/estimator'
+import { confColor, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtPct } from '@/lib/fmt'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
