@@ -186,16 +186,22 @@ export default function ModelPage() {
             </div>
             <div className="space-y-2">
               {[
-                { label: 'Mean', value: activeHist.mean.toFixed(4) },
-                { label: 'Std dev', value: activeHist.std.toFixed(4) },
-                { label: 'p50', value: (activeHist.bins.length > 0 ? activeHist.bins[Math.floor(activeHist.counts.length / 2)]?.toFixed(4) : '—') },
-                { label: 'p95', value: activeHist.p95.toFixed(4) },
-                { label: 'p99', value: activeHist.p99.toFixed(4) },
-                { label: 'Min', value: activeHist.min.toFixed(4) },
-                { label: 'Max', value: activeHist.max.toFixed(4) },
+                { label: 'Mean', value: activeHist.mean.toFixed(4), tip: 'Mean of the residual distribution. 0 = no systematic bias.' },
+                { label: 'Std dev', value: activeHist.std.toFixed(4), tip: 'Standard deviation — spread of residuals around the mean.' },
+                { label: 'p50', value: (activeHist.bins.length > 0 ? activeHist.bins[Math.floor(activeHist.counts.length / 2)]?.toFixed(4) : '—'), tip: 'Median residual. 50% of countries have a smaller residual.' },
+                { label: 'p95', value: activeHist.p95.toFixed(4), tip: '95th percentile — 95% of countries have a residual at or below this value.' },
+                { label: 'p99', value: activeHist.p99.toFixed(4), tip: '99th percentile — 99% of countries have a residual at or below this value.' },
+                { label: 'Min', value: activeHist.min.toFixed(4), tip: 'Smallest residual in the training set (best-fit country).' },
+                { label: 'Max', value: activeHist.max.toFixed(4), tip: 'Largest residual in the training set (worst-fit country).' },
               ].map(s => (
-                <div key={s.label} className="flex justify-between items-center px-3 py-1.5 rounded bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+                <div key={s.label} className="relative inline-flex group w-full items-center justify-between px-3 py-1.5 rounded bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
                   <span className="text-[10px] text-zinc-400 uppercase tracking-wider">{s.label}</span>
+                  {s.tip && (
+                    <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-zinc-800 text-white text-[9px] leading-tight shadow-lg pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                      {s.tip}
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-800" />
+                    </span>
+                  )}
                   <span className="text-[10px] font-mono text-zinc-700 dark:text-zinc-300">{s.value}</span>
                 </div>
               ))}
@@ -257,20 +263,26 @@ export default function ModelPage() {
 
         <section>
           <SectionHeader title="Cross-validation diagnostics"
-            subtitle={`${cv.n_splits}-fold · n=${cv.n_countries} · per-feature α matching trainer`} />
+            subtitle={`${cv.n_splits}-fold · n=${cv.n_countries} · per-feature α matching trainer · in-sample R²=${m.r_squared?.toFixed(4) ?? '—'} for comparison`} />
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-100 dark:border-zinc-800 p-4">
               <CvFolds cv={cv} />
             </div>
             <div className="space-y-2">
               {[
-                { label: 'Ø R²', value: cv.cv_r2_mean.toFixed(4), color: r2Color(cv.cv_r2_mean) },
-                { label: 'R² std', value: `±${cv.cv_r2_std.toFixed(4)}`, color: '#71717a' },
-                { label: 'Ø RMSE', value: cv.cv_rmse_mean.toFixed(4), color: '#A855F7' },
-                { label: 'RMSE std', value: `±${cv.cv_rmse_std.toFixed(4)}`, color: '#71717a' },
+                { label: 'Ø R²', value: cv.cv_r2_mean.toFixed(4), color: r2Color(cv.cv_r2_mean), tip: 'Mean cross-validated R² across all folds (out-of-sample). Lower than the in-sample R² above — this is the true generalization metric.' },
+                { label: 'R² std', value: `±${cv.cv_r2_std.toFixed(4)}`, color: '#71717a', tip: 'Standard deviation of R² across folds. High = model is unstable across different data splits.' },
+                { label: 'Ø RMSE', value: cv.cv_rmse_mean.toFixed(4), color: '#A855F7', tip: 'Mean root-mean-squared error across folds. Lower is better.' },
+                { label: 'RMSE std', value: `±${cv.cv_rmse_std.toFixed(4)}`, color: '#71717a', tip: 'Standard deviation of RMSE across folds. High = inconsistent error across data splits.' },
               ].map(s => (
-                <div key={s.label} className="flex justify-between items-center px-3 py-1.5 rounded bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
+                <div key={s.label} className="relative inline-flex group w-full items-center justify-between px-3 py-1.5 rounded bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800">
                   <span className="text-[10px] text-zinc-400 uppercase tracking-wider">{s.label}</span>
+                  {s.tip && (
+                    <span className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-zinc-800 text-white text-[9px] leading-tight shadow-lg pointer-events-none whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity">
+                      {s.tip}
+                      <span className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-zinc-800" />
+                    </span>
+                  )}
                   <span className="text-[10px] font-mono" style={s.color ? { color: s.color } : {}}>{s.value}</span>
                 </div>
               ))}

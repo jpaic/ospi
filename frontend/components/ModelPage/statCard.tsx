@@ -18,9 +18,7 @@ export function StatCard({ label, value, color, sub }: {
 export function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
     <div className="mb-3">
-      <h2 className="text-[11px] font-bold tracking-widest uppercase text-zinc-700 dark:text-zinc-300">
-        {title}
-      </h2>
+      <h2 className="text-[11px] font-bold tracking-widest uppercase text-zinc-700 dark:text-zinc-300">{title}</h2>
       {subtitle && (
         <p className="text-[9px] text-zinc-300 dark:text-zinc-700 mt-0.5 tracking-wider">
           {subtitle}
