@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import type { GeoProjection, GeoPath, GeoPermissibleObjects } from 'd3-geo'
 import type { Feature, FeatureCollection } from 'geojson'
+import type { Arc, GeometryCollection } from 'topojson-specification'
 import type { Country } from '@/lib/types'
 import { nameToIso, normalizeRotDelta } from '@/components/WorldMap/constants'
 
@@ -21,7 +22,7 @@ interface AnnotatedGratPath extends SVGPathElement {
   __grat__?: GeoPermissibleObjects
 }
 
-type TopoJson = { objects: { countries: { type: 'Topology'; geometries: [] } } }
+type TopoJson = { type: 'Topology'; arcs: Arc[]; objects: { countries: GeometryCollection } }
 
 export default function WorldMap({ countries, selected, onSelect, resetKey }: Props) {
   const svgRef = useRef<SVGSVGElement>(null)
@@ -225,6 +226,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
 
     if (feature) {
       const pathGen = pathGenRef.current
+      if (!pathGen) return
       const bounds = pathGen.bounds(feature)
       const dx = bounds[1][0] - bounds[0][0]
       const dy = bounds[1][1] - bounds[0][1]
@@ -425,8 +427,8 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
         gratPath.setAttribute('stroke-width', '0.4')
         gratLayer.appendChild(gratPath)
 
-        const world = await d3.json<TopoJson>('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as unknown as TopoJson
-        const feats = (topo.feature(world, world.objects.countries) as FeatureCollection).features as Feature[]
+        const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as unknown as TopoJson
+        const feats = (topo.feature(world, world.objects.countries) as unknown as FeatureCollection).features as Feature[]
         feats.forEach((f: Feature) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path') as AnnotatedPath
           p.__feature__ = f
@@ -435,7 +437,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
           p.setAttribute('stroke', borderCol)
           p.setAttribute('stroke-width', '0.35')
           landLayer.appendChild(p)
-          const numId = parseInt(f.id, 10)
+          const numId = parseInt(String(f.id), 10)
           if (!isNaN(numId)) featurePathsRef.current.set(numId, p)
         })
 
@@ -624,7 +626,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
         initDoneRef.current = true
       }
 
-      drawMarkers(projRef.current, curKRef.current)
+      if (projRef.current) drawMarkers(projRef.current, curKRef.current)
       drawHighlight(selectedRef.current)
     }
 
