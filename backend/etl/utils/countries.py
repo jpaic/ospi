@@ -1,5 +1,8 @@
 import httpx
+import logging
 import time
+
+logger = logging.getLogger(__name__)
 
 BASE = "https://population.un.org/dataportalapi/api/v1"
 
@@ -49,7 +52,7 @@ def fetch_all_locations(headers: dict) -> list[dict]:
                 raise
         locations.extend(data["data"])
         total_pages = data.get("pages", 1)
-        print(f"Locations page {page}/{total_pages} — {len(locations)} so far")
+        logger.info("Locations page %d/%d — %d so far", page, total_pages, len(locations))
         page += 1
 
     return locations

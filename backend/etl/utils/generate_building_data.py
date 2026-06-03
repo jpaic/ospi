@@ -29,10 +29,13 @@ Usage
 """
 
 import csv
+import logging
 import math
 from pathlib import Path
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CSV_PATH = DATA_DIR / "building_density.csv"
@@ -182,27 +185,27 @@ def _normalise_density(density: float) -> float:
 
 
 def main():
-    print("Fetching country list from World Bank...")
+    logger.info("Fetching country list from World Bank...")
     countries, iso3_map = _get_country_list()
-    print(f"  {len(countries)} countries")
+    logger.info("  %d countries", len(countries))
 
-    print("Fetching land area (AG.LND.TOTL.K2)...")
+    logger.info("Fetching land area (AG.LND.TOTL.K2)...")
     land = _fetch_indicator("AG.LND.TOTL.K2")
     land["TW"] = 36193.0
-    print(f"  {len(land)} countries")
+    logger.info("  %d countries", len(land))
 
-    print("Fetching urban population % (SP.URB.TOTL.IN.ZS)...")
+    logger.info("Fetching urban population %% (SP.URB.TOTL.IN.ZS)...")
     urban = _fetch_indicator_by_year("SP.URB.TOTL.IN.ZS", URBAN_YEAR)
     urban["TW"] = 79.0
-    print(f"  {len(urban)} countries")
+    logger.info("  %d countries", len(urban))
 
-    print("Fetching GDP per capita (NY.GDP.PCAP.CD)...")
+    logger.info("Fetching GDP per capita (NY.GDP.PCAP.CD)...")
     gdp = _fetch_indicator_by_year("NY.GDP.PCAP.CD", GDP_YEAR)
     gdp["TW"] = 33_000.0
-    print(f"  {len(gdp)} countries")
+    logger.info("  %d countries", len(gdp))
 
     known = _known_building_counts()
-    print(f"  Known building counts: {len(known)} countries")
+    logger.info("  Known building counts: %d countries", len(known))
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -233,8 +236,8 @@ def main():
             else:
                 writer.writerow([iso2, name, "", "", "", ""])
 
-    print(f"\nDone — {scored}/{len(countries)} countries scored")
-    print(f"Output: {CSV_PATH}")
+    logger.info("\nDone — %d/%d countries scored", scored, len(countries))
+    logger.info("Output: %s", CSV_PATH)
 
 
 if __name__ == "__main__":

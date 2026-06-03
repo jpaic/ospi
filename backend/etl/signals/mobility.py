@@ -1,7 +1,10 @@
 import csv
+import logging
 from pathlib import Path
 from db.connection import get_conn
 from psycopg2.extras import execute_values
+
+logger = logging.getLogger(__name__)
 
 REFERENCE_YEAR = 2024
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "numbeo_traffic.csv"
@@ -18,7 +21,7 @@ def fetch_mobility_signals():
         python -m etl.utils.generate_numbeo_traffic
     """
     if not DATA_FILE.exists():
-        print(f"Mobility data not found at {DATA_FILE}")
+        logger.error("Mobility data not found at %s", DATA_FILE)
         return []
 
     results = []
@@ -45,7 +48,7 @@ def fetch_mobility_signals():
                 "year": REFERENCE_YEAR,
             })
 
-    print(f"Loaded {len(results)} mobility rows from CSV ({skipped} skipped)")
+    logger.info("Loaded %d mobility rows from CSV (%d skipped)", len(results), skipped)
     return results
 
 
@@ -72,4 +75,4 @@ def store_mobility_signals(signals: list[dict]):
             )
         conn.commit()
 
-    print(f"Stored {len(rows)} mobility signals")
+    logger.info("Stored %d mobility signals", len(rows))

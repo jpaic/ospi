@@ -1,8 +1,11 @@
 import csv
+import logging
 import math
 from pathlib import Path
 from db.connection import get_conn
 from psycopg2.extras import execute_values
+
+logger = logging.getLogger(__name__)
 
 REFERENCE_YEAR = 2024
 DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "building_density.csv"
@@ -26,7 +29,7 @@ def fetch_building_signals():
         python backend/etl/data/generate_building_data.py
     """
     if not DATA_FILE.exists():
-        print(f"Building density data not found at {DATA_FILE}")
+        logger.error("Building density data not found at %s", DATA_FILE)
         return []
 
     results = []
@@ -57,7 +60,7 @@ def fetch_building_signals():
                 "year": REFERENCE_YEAR,
             })
 
-    print(f"Loaded {len(results)} building-total rows from CSV ({skipped} skipped)")
+    logger.info("Loaded %d building-total rows from CSV (%d skipped)", len(results), skipped)
     return results
 
 
@@ -84,4 +87,4 @@ def store_building_signals(signals: list[dict]):
             )
         conn.commit()
 
-    print(f"Stored {len(rows)} building-density signals")
+    logger.info("Stored %d building-density signals", len(rows))

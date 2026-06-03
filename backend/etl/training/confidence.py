@@ -130,4 +130,4 @@ if __name__ == "__main__":
     import json
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     result = update_confidence()
-    print(json.dumps(result, indent=2))
+    log.info(json.dumps(result, indent=2))

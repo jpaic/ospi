@@ -24,8 +24,12 @@ v2.1 fixes:
     (removes circular dependency on official population).
 """
 import math
+import logging
 from db.connection import get_conn
+from services.cache import get_cache
 from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT
+
+logger = logging.getLogger(__name__)
 
 SIGNAL_KEYS = ["telecom", "electricity", "building", "mobility", "internet"]
 
@@ -42,15 +46,17 @@ _V1_WEIGHTS = {
 
 # ── Model loading ─────────────────────────────────────────────────────────────
 
-_model_cache: dict | None = None
-_residuals_cache: dict | None = None
+_MODEL_CACHE_KEY = "estimator:model"
+_RESID_CACHE_KEY = "estimator:residuals"
 
 
 def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
-    global _model_cache, _residuals_cache
+    cache = get_cache()
 
-    if _model_cache is not None:
-        return _model_cache, _residuals_cache or {}
+    cached_model = cache.get(_MODEL_CACHE_KEY)
+    if cached_model is not None:
+        cached_resids = cache.get(_RESID_CACHE_KEY) or {}
+        return cached_model, cached_resids
 
     with conn.cursor() as cur:
         cur.execute(
@@ -58,8 +64,8 @@ def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
         )
         row = cur.fetchone()
         if not row:
-            _model_cache = None
-            _residuals_cache = {}
+            cache.set(_MODEL_CACHE_KEY, None)
+            cache.set(_RESID_CACHE_KEY, {})
             return None, {}
 
         cols = [desc[0] for desc in cur.description]
@@ -72,16 +78,17 @@ def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
         )
         residuals = {r[0]: float(r[1]) for r in cur.fetchall()}
 
-    _model_cache = model
-    _residuals_cache = residuals
+    cache.set(_MODEL_CACHE_KEY, model)
+    cache.set(_RESID_CACHE_KEY, residuals)
+    logger.debug("Loaded model_id=%s (%d residuals)", model["id"], len(residuals))
     return model, residuals
 
 
 def _invalidate_model_cache():
     """Call after a retrain so the next request picks up fresh weights."""
-    global _model_cache, _residuals_cache
-    _model_cache = None
-    _residuals_cache = None
+    get_cache().invalidate(_MODEL_CACHE_KEY)
+    get_cache().invalidate(_RESID_CACHE_KEY)
+    logger.info("Invalidated estimator cache")
 
 
 # ── Scaler ────────────────────────────────────────────────────────────────────

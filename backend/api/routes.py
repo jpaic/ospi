@@ -1,18 +1,24 @@
+import logging
+import os
+
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from dotenv import load_dotenv
+
 from services.estimator import (
     estimate_population,
     estimate_population_bulk,
     estimate_population_history_bulk,
 )
 from db.connection import get_conn
-from dotenv import load_dotenv
-import os
+from services.cache import get_cache
 
 load_dotenv()
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
+
+app = FastAPI(title="OSPI API", version="2.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -24,10 +30,16 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+# ── Retrain status store ──────────────────────────────────────────────────────
+
+_retrain_status: dict[str, str | dict | None] = {"status": "idle", "result": None, "error": None}
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+# NOTE: `/countries/full` must be defined BEFORE `/countries/{iso2}` so FastAPI
+# matches the literal "full" before trying it as an iso2 parameter.
 
 def get_signals_for_country(iso2: str) -> dict:
+    """Returns {signal_type: score} for the latest year of each type."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -129,6 +141,7 @@ def get_all_metadata() -> dict[str, dict]:
 
 
 def calc_growth_rate(history: list[dict]) -> float:
+    """Annual growth rate (fraction) between the two most recent official years."""
     if len(history) < 2:
         return 0.0
     latest = history[-1]["v"]
@@ -139,6 +152,7 @@ def calc_growth_rate(history: list[dict]) -> float:
 
 
 def build_signals(signals: dict) -> dict:
+    """Normalise signal dict to a standard shape (telecom, electricity, etc.)."""
     return {
         "telecom":     signals.get("telecom"),
         "electricity": signals.get("electricity"),
@@ -162,26 +176,33 @@ def get_latest_model_info() -> dict | None:
             return dict(zip(cols, row))
 
 
-# ── Details cache (recomputed once per model_id) ──────────────────────────────
-
-_details_cache: dict[int, dict] = {}
-
-def invalidate_details_cache() -> None:
-    _details_cache.clear()
+# ── Details (cached via AppCache) ─────────────────────────────────────────────
 
 def _build_details(model_id: int) -> dict:
-    """
-    Build the full /model/details response for a given model_id.
-    Separated so the retrain endpoints can invalidate the cache.
+    """Assemble the full /model/details payload.
+
+    Steps:
+      1. Check AppCache.
+      2. Load model row from model_weights.
+      3. Load residuals & country names.
+      4. Run bulk estimation.
+      5. Build scatter array, extract outliers.
+      6. Compute residual histogram (numpy).
+      7. Load confidence distribution from populations.
+      8. Run evaluate helpers: coverage_distribution, run_cross_val_diagnostics,
+         compute_feature_importance.
+      9. Write to AppCache and return.
     """
     import numpy as np
     from services.estimator import estimate_population_bulk
     from etl.training.evaluate import coverage_distribution, run_cross_val_diagnostics, compute_feature_importance
 
-    if model_id in _details_cache:
-        return _details_cache[model_id]
+    cache = get_cache()
+    cache_key = f"details:{model_id}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
 
-    # 1. Model info
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT * FROM model_weights WHERE id = %s", (model_id,))
@@ -191,7 +212,6 @@ def _build_details(model_id: int) -> dict:
             cols = [desc[0] for desc in cur.description]
             model = dict(zip(cols, row))
 
-    # 2. Training countries from model_residuals
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -202,7 +222,6 @@ def _build_details(model_id: int) -> dict:
 
     training_iso2s = list(residual_data.keys())
 
-    # 3. Names
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -211,10 +230,8 @@ def _build_details(model_id: int) -> dict:
             )
             names = {r[0]: r[1] for r in cur.fetchall()}
 
-    # 4. Estimates for training countries
     estimates = estimate_population_bulk(training_iso2s)
 
-    # 5. Scatter + outliers
     scatter = []
     for iso2 in training_iso2s:
         est = estimates.get(iso2, {})
@@ -236,7 +253,6 @@ def _build_details(model_id: int) -> dict:
     scatter.sort(key=lambda x: x["official"])
     outliers = sorted(scatter, key=lambda x: x["residual"], reverse=True)[:10]
 
-    # 6. Residual histogram
     all_residuals = [d["residual"] for d in scatter]
     if all_residuals:
         hist_counts, hist_edges = np.histogram(all_residuals, bins=20)
@@ -248,7 +264,6 @@ def _build_details(model_id: int) -> dict:
         hist_counts = hist_edges = np.array([])
         residual_mean = residual_std = residual_p95 = residual_p99 = 0
 
-    # 7. Confidence distribution
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
@@ -268,13 +283,8 @@ def _build_details(model_id: int) -> dict:
     }
     confidence["total"] = sum(confidence.values())
 
-    # 8. Coverage distribution
     cov = coverage_distribution()
-
-    # 9. CV diagnostics
     cv = run_cross_val_diagnostics()
-
-    # 10. Feature importance
     fi = compute_feature_importance(model_id)
     feature_importance = [
         {"feature": k, "coefficient": v}
@@ -315,7 +325,7 @@ def _build_details(model_id: int) -> dict:
         "feature_importance": feature_importance,
     }
 
-    _details_cache[model_id] = result
+    cache.set(cache_key, result)
     return result
 
 
@@ -328,9 +338,10 @@ def list_countries():
     iso2_list   = sorted(all_signals.keys())
     estimates   = estimate_population_bulk(iso2_list)
 
-    print(f"signals: {len(all_signals)}, pops: {len(all_pops)}, estimates: {len(estimates)}")
+    logger.info("signals=%d, pops=%d, estimates=%d", len(all_signals), len(all_pops), len(estimates))
     no_official = [k for k, v in estimates.items() if v and v.get("official") is None]
-    print(f"Filtered out (no official): {no_official[:10]}")
+    if no_official:
+        logger.debug("Filtered out (no official): %s", no_official[:10])
 
     results = []
     for iso2 in iso2_list:
@@ -348,15 +359,9 @@ def list_countries():
     return results
 
 
-# NOTE: /countries/full must be defined before /countries/{iso2} — FastAPI
-# matches routes in definition order and would treat "full" as an iso2 value.
 @app.get("/countries/full")
 def list_countries_full():
-    """
-    Returns the complete Country shape the frontend needs —
-    history, metadata, signals, and OSPI estimates in one call.
-    Replaces the static unData.json baseline entirely.
-    """
+    """Rich /countries — metadata, signals, full official/ospi histories."""
     all_signals   = get_all_signals_bulk()
     all_histories = get_all_population_histories()
     all_metadata  = get_all_metadata()
@@ -376,7 +381,6 @@ def list_countries_full():
         if official is None:
             continue
 
-        # v2 estimate is census-free; fall back to official if model not ready
         ospi_estimate = est.get("estimate") or official
 
         results.append({
@@ -396,7 +400,6 @@ def list_countries_full():
             "gdpPerCapita": meta["gdpPerCapita"],
             "growthRate":   calc_growth_rate(history),
             "regions":      [],
-            # v2 extras (consumed by frontend if it wants them)
             "signalCoverage": est.get("signal_coverage"),
         })
 
@@ -405,6 +408,7 @@ def list_countries_full():
 
 @app.get("/countries/{iso2}")
 def get_country(iso2: str):
+    """Single-country estimate + latest signals."""
     iso2 = iso2.upper()
     est  = estimate_population(iso2)
     if not est or est.get("official") is None:
@@ -421,11 +425,11 @@ def get_country(iso2: str):
     }
 
 
-# ── Model status ──────────────────────────────────────────────────────────────
+# ── Model endpoints ───────────────────────────────────────────────────────────
 
 @app.get("/model/details")
 def model_details():
-    """Full model showcase — cached response, recomputed once per model_id."""
+    """Full model diagnostics: scatter, histogram, outliers, confidence, CV, feature importance."""
     model = get_latest_model_info()
     if not model:
         return {"trained": False}
@@ -434,10 +438,7 @@ def model_details():
 
 @app.get("/model/status")
 def model_status():
-    """
-    Returns info about the currently active model.
-    Consumed by the frontend ModelStatus panel.
-    """
+    """Quick training-status check (no historical data)."""
     model = get_latest_model_info()
     if not model:
         return {
@@ -471,7 +472,7 @@ def model_status():
 
 @app.get("/model/version")
 def model_version():
-    """Lightweight version metadata for the frontend landing page and date labels."""
+    """Model-run label (e.g. 2024-Q3) and metadata for the landing page."""
     model = get_latest_model_info()
     if not model:
         return {
@@ -506,43 +507,46 @@ def model_version():
 
 @app.post("/admin/retrain")
 async def admin_retrain(request: Request, background_tasks: BackgroundTasks):
-    """
-    Triggers a full model retrain.
-    Protected by X-Admin-Token header (shared secret from ADMIN_TOKEN env var).
-
-    Runs in the background so the HTTP response returns immediately.
-    Poll GET /model/status to check when the new model is live.
-    """
+    """Kick off a background retrain. Poll /admin/retrain/status for completion."""
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
 
     def _do_retrain():
+        """Synchronous wrapper — BackgroundTasks silently drops coroutines."""
+        global _retrain_status
+        _retrain_status = {"status": "running", "result": None, "error": None}
         from etl.jobs import run_model_training
         try:
+            get_cache().invalidate_prefix("details:")
             result = run_model_training()
-            invalidate_details_cache()
-            print(f"[retrain] Background job completed: {result}")
+            _retrain_status = {"status": "completed", "result": result, "error": None}
+            logger.info("Background retrain completed: model_id=%s", result.get("model_id"))
         except Exception as e:
-            print(f"[retrain] Background job failed: {e}")
+            _retrain_status = {"status": "failed", "result": None, "error": str(e)}
+            logger.error("Background retrain failed: %s", exc_info=True)
 
-    # Invalidate before queuing so stale cache from previous model_id isn't served
-    invalidate_details_cache()
     background_tasks.add_task(_do_retrain)
-    return {"status": "accepted", "message": "Retrain job queued. Poll /model/status for progress."}
+    return {"status": "accepted", "message": "Retrain job queued. Poll /admin/retrain/status for progress."}
+
+
+@app.get("/admin/retrain/status")
+async def admin_retrain_status(request: Request):
+    """Poll retrain progress — status is idle | running | completed | failed."""
+    token = request.headers.get("X-Admin-Token", "")
+    if token != os.environ.get("ADMIN_TOKEN", ""):
+        raise HTTPException(status_code=403, detail="Forbidden")
+    return _retrain_status
 
 
 @app.post("/admin/retrain/sync")
 async def admin_retrain_sync(request: Request):
-    """
-    Synchronous retrain — waits for completion and returns full results.
-    Useful for CLI / CI pipelines. Protected by X-Admin-Token.
-    """
+    """Synchronous retrain — blocks the request until training finishes."""
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
 
-    invalidate_details_cache()
+    get_cache().invalidate_prefix("details:")
     try:
         from etl.jobs import run_model_training
         result = run_model_training()
@@ -555,9 +559,7 @@ async def admin_retrain_sync(request: Request):
 
 @app.get("/admin/model-health")
 async def admin_model_health(request: Request):
-    """
-    Detailed model health report.  Protected by X-Admin-Token.
-    """
+    """Health summary: R², residual stats, confidence tiers, coverage count."""
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -568,9 +570,7 @@ async def admin_model_health(request: Request):
 
 @app.get("/admin/model-diagnostics")
 async def admin_model_diagnostics(request: Request):
-    """
-    Cross-validation diagnostics and feature importance.  Protected by X-Admin-Token.
-    """
+    """Cross-val diagnostics, feature importance, coverage distribution."""
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -585,10 +585,7 @@ async def admin_model_diagnostics(request: Request):
 
 @app.post("/admin/apply-patches")
 async def admin_apply_patches(request: Request):
-    """
-    Applies the model_schema_patch.sql and source_confidence_patch.sql.
-    Idempotent — safe to call multiple times.  Protected by X-Admin-Token.
-    """
+    """Apply database schema patches from etl/jobs.py."""
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")

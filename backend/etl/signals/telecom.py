@@ -4,6 +4,9 @@ import httpx
 from db.connection import get_conn
 from etl.utils.countries import get_valid_iso2_codes
 from psycopg2.extras import execute_values
+import logging
+
+logger = logging.getLogger(__name__)
 
 START_YEAR = 2010
 END_YEAR = date.today().year - 1
@@ -21,22 +24,22 @@ TEL_MAX = 2_000_000_000
 
 def fetch_telecom_signals():
     valid_codes = get_valid_iso2_codes()
-    print(f"Valid country codes loaded: {len(valid_codes)}")
+    logger.info("Valid country codes loaded: %d", len(valid_codes))
 
     try:
         response = httpx.get(WORLD_BANK_URL, timeout=60)
         response.raise_for_status()
     except httpx.HTTPError as e:
-        print("Request failed:", e)
+        logger.error("Request failed: %s", e)
         return {}
 
     payload = response.json()
     if not isinstance(payload, list) or len(payload) < 2:
-        print("Invalid payload")
+        logger.warning("Invalid payload")
         return {}
 
     meta, records = payload
-    print(f"API returned {meta.get('total')} total records across {meta.get('pages')} page(s)")
+    logger.info("API returned %s total records across %s page(s)", meta.get('total'), meta.get('pages'))
 
     results = {}
     skipped_not_valid = []
@@ -80,14 +83,14 @@ def fetch_telecom_signals():
             "year": year,
         }
 
-    print(f"\n--- Skip breakdown ---")
-    print(f"Kept:                  {len(results)}")
-    print(f"Skipped (no value):    {len(skipped_no_value)}")
-    print(f"Skipped (not valid):   {len(skipped_not_valid)}")
-    print(f"Skipped (duplicate):   {len(skipped_duplicate_year)}")
-    print(f"Total accounted for:   {len(results) + len(skipped_no_value) + len(skipped_not_valid) + len(skipped_duplicate_year)}")
+    logger.info("--- Skip breakdown ---")
+    logger.info("Kept:                  %d", len(results))
+    logger.info("Skipped (no value):    %d", len(skipped_no_value))
+    logger.info("Skipped (not valid):   %d", len(skipped_not_valid))
+    logger.info("Skipped (duplicate):   %d", len(skipped_duplicate_year))
+    logger.info("Total accounted for:   %d", len(results) + len(skipped_no_value) + len(skipped_not_valid) + len(skipped_duplicate_year))
 
-    print(f"\nFetched {len(results)} country-year telecom rows")
+    logger.info("Fetched %d country-year telecom rows", len(results))
     return list(results.values())
 
 
@@ -114,4 +117,4 @@ def store_telecom_signals(signals: list[dict]):
             )
         conn.commit()
 
-    print(f"Stored {len(rows)} telecom signals")
+    logger.info("Stored %d telecom signals", len(rows))

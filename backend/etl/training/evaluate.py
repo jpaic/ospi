@@ -319,19 +319,19 @@ if __name__ == "__main__":
     import json
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-    print("=== Coverage Distribution ===")
+    log.info("=== Coverage Distribution ===")
     cov = coverage_distribution()
-    print(f"  Total countries: {cov['total']}")
-    print(f"  Tier breakdown:  {cov['tiers']}")
+    log.info("  Total countries: %d", cov['total'])
+    log.info("  Tier breakdown:  %s", cov['tiers'])
 
-    print("\n=== Cross-Validation Diagnostics ===")
+    log.info("=== Cross-Validation Diagnostics ===")
     diag = run_cross_val_diagnostics()
-    print(json.dumps(diag, indent=2))
+    log.info(json.dumps(diag, indent=2))
 
-    print("\n=== Latest Model Feature Importance ===")
+    log.info("=== Latest Model Feature Importance ===")
     fi = compute_feature_importance()
-    print(json.dumps(fi, indent=2))
+    log.info(json.dumps(fi, indent=2))
 
-    print("\n=== Model Health Report ===")
+    log.info("=== Model Health Report ===")
     report = model_health_report()
-    print(json.dumps(report, indent=2, default=str))
+    log.info(json.dumps(report, indent=2, default=str))

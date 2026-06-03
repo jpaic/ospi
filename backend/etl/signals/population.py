@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import httpx
@@ -5,6 +6,8 @@ from db.connection import get_conn
 from dotenv import load_dotenv
 from etl.utils.countries import get_valid_country_codes, fetch_all_locations, filter_locations
 from psycopg2.extras import execute_values
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -54,7 +57,7 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 502 and attempt < max_retries - 1:
                 time.sleep(2 ** attempt)
-                print(f"  {location_name}: 502 error, retry {attempt + 1}/{max_retries}")
+                logger.info("  %s: 502 error, retry %d/%d", location_name, attempt + 1, max_retries)
                 continue
             raise
         except Exception:
@@ -69,24 +72,24 @@ def fetch_population_for_location(location_id: int, location_name: str, max_retr
 def fetch_population_signals() -> dict[str, list[dict]]:
     """Returns {iso2: [{year, population}, ...]}"""
     valid_iso2, valid_iso3 = get_valid_country_codes()
-    print(f"Valid country codes loaded: {len(valid_iso2)}")
+    logger.info("Valid country codes loaded: %d", len(valid_iso2))
 
-    print("\nFetching all locations from UN Data Portal...\n")
+    logger.info("Fetching all locations from UN Data Portal...")
     all_locations = fetch_all_locations(HEADERS)
-    print(f"\nTotal locations from UN API: {len(all_locations)}")
+    logger.info("Total locations from UN API: %d", len(all_locations))
 
     countries, skipped, skipped_not_valid = filter_locations(all_locations, valid_iso2, valid_iso3)
 
-    print(f"\n--- Location filter breakdown ---")
-    print(f"Matched valid countries:  {len(countries)}")
-    print(f"Skipped (invalid):        {skipped}")
-    print(f"Skipped (not valid):      {len(skipped_not_valid)}")
+    logger.info("--- Location filter breakdown ---")
+    logger.info("Matched valid countries:  %d", len(countries))
+    logger.info("Skipped (invalid):        %d", skipped)
+    logger.info("Skipped (not valid):      %d", len(skipped_not_valid))
 
     if not countries:
-        print("No countries found!")
+        logger.warning("No countries found!")
         return {}
 
-    print("\nFetching population data for all countries...\n")
+    logger.info("Fetching population data for all countries...")
     results = {}
     success_count   = 0
     no_data_count   = 0
@@ -99,7 +102,7 @@ def fetch_population_signals() -> dict[str, list[dict]]:
         name = country["Name"]
 
         if i % 10 == 0 and i > 0:
-            print(f"  Progress: {i}/{len(countries)} — {success_count} successful, {no_data_count} no data, {fail_count} failed")
+            logger.info("  Progress: %d/%d — %d successful, %d no data, %d failed", i, len(countries), success_count, no_data_count, fail_count)
 
         try:
             rows = fetch_population_for_location(country["Id"], name)
@@ -122,27 +125,27 @@ def fetch_population_signals() -> dict[str, list[dict]]:
             fail_count += 1
             fail_countries.append(f"{iso2} ({name}): {str(e)}")
 
-    print(f"\n--- Population fetch breakdown ---")
-    print(f"Successfully fetched: {success_count}")
-    print(f"No data available:    {no_data_count}")
-    print(f"Failed:               {fail_count}")
-    print(f"Total in dataset:     {len(results)}")
+    logger.info("--- Population fetch breakdown ---")
+    logger.info("Successfully fetched: %d", success_count)
+    logger.info("No data available:    %d", no_data_count)
+    logger.info("Failed:               %d", fail_count)
+    logger.info("Total in dataset:     %d", len(results))
 
     if no_data_countries:
-        print(f"\nCountries with no data ({len(no_data_countries)}):")
+        logger.info("Countries with no data (%d):", len(no_data_countries))
         for c in no_data_countries:
-            print(f"  {c}")
+            logger.info("  %s", c)
 
     if fail_countries:
-        print(f"\nFailed countries ({len(fail_countries)}):")
+        logger.warning("Failed countries (%d):", len(fail_countries))
         for c in fail_countries:
-            print(f"  {c}")
+            logger.warning("  %s", c)
 
     missing = valid_iso2 - set(results.keys())
     if missing:
-        print(f"\nValid countries with NO population data ({len(missing)}):")
+        logger.warning("Valid countries with NO population data (%d):", len(missing))
         for code in sorted(missing):
-            print(f"  {code}")
+            logger.warning("  %s", code)
 
     return results
 
@@ -156,10 +159,10 @@ def store_population_signals(signals: dict[str, list[dict]]):
     rows = [(iso2, year, population) for (iso2, year), population in unique_rows.items()]
 
     if not rows:
-        print("No data to store")
+        logger.info("No data to store")
         return
 
-    print(f"\nPreparing to store {len(rows)} unique population rows for {len(signals)} countries...")
+    logger.info("Preparing to store %d unique population rows for %d countries...", len(rows), len(signals))
 
     batch_size  = 1000
     total_stored = 0
@@ -183,9 +186,9 @@ def store_population_signals(signals: dict[str, list[dict]]):
                     )
                     conn.commit()
                     total_stored += len(batch)
-                    print(f"  Stored batch {i//batch_size + 1}/{(len(rows)-1)//batch_size + 1} ({len(batch)} rows)")
+                    logger.info("  Stored batch %d/%d (%d rows)", i//batch_size + 1, (len(rows)-1)//batch_size + 1, len(batch))
                 except Exception as e:
-                    print(f"  Error storing batch {i//batch_size + 1}: {e}")
+                    logger.error("  Error storing batch %d: %s", i//batch_size + 1, e)
                     conn.rollback()
                     for row in batch:
                         try:
@@ -200,14 +203,14 @@ def store_population_signals(signals: dict[str, list[dict]]):
                             conn.commit()
                             total_stored += 1
                         except Exception as row_error:
-                            print(f"    Failed to insert {row[0]}-{row[1]}: {row_error}")
+                            logger.error("    Failed to insert %s-%s: %s", row[0], row[1], row_error)
                             conn.rollback()
 
-    print(f"\n✓ Successfully stored {total_stored} population rows for {len(signals)} countries")
+    logger.info("Successfully stored %d population rows for %d countries", total_stored, len(signals))
 
 
 def main():
-    print("Starting UN population data fetch...\n")
+    logger.info("Starting UN population data fetch...")
 
     try:
         signals = fetch_population_signals()
@@ -215,19 +218,19 @@ def main():
         if signals:
             store_population_signals(signals)
 
-            print("\nTop 20 most populous countries:")
+            logger.info("Top 20 most populous countries:")
             country_populations = sorted(
                 [(iso2, max(rows, key=lambda r: r["year"])["population"]) for iso2, rows in signals.items()],
                 key=lambda x: x[1],
                 reverse=True,
             )
             for i, (iso2, pop) in enumerate(country_populations[:20], 1):
-                print(f"  {i}. {iso2}: {pop:.2f}M")
+                logger.info("  %d. %s: %.2fM", i, iso2, pop)
         else:
-            print("No population data was fetched")
+            logger.warning("No population data was fetched")
 
     except Exception as e:
-        print(f"Fatal error: {e}")
+        logger.error("Fatal error: %s", e)
         raise
 
 

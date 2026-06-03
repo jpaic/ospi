@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import httpx
 from pathlib import Path
@@ -6,6 +7,8 @@ from db.connection import get_conn
 from dotenv import load_dotenv
 from etl.utils.countries import get_valid_country_codes, fetch_all_locations, filter_locations
 from psycopg2.extras import execute_values
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -63,23 +66,23 @@ async def _get_with_retry(
 
             if status == 429:
                 retry_after = int(e.response.headers.get("Retry-After", 10))
-                print(f"  {label}: rate limited, waiting {retry_after}s")
+                logger.info("  %s: rate limited, waiting %ds", label, retry_after)
                 await asyncio.sleep(retry_after)
                 continue
 
             if status == 502 and attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
-                print(f"  {label}: 502 retry {attempt + 1}/{max_retries}")
+                logger.info("  %s: 502 retry %d/%d", label, attempt + 1, max_retries)
                 continue
 
-            print(f"  {label}: HTTP {status}")
+            logger.warning("  %s: HTTP %d", label, status)
             return None
 
         except Exception as e:
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
                 continue
-            print(f"  {label}: {e}")
+            logger.warning("  %s: %s", label, e)
             return None
 
     return None
@@ -154,7 +157,7 @@ def apply_coords_patch():
     patch_path = Path(__file__).resolve().parents[2] / "db" / "patches" / "coords_patch.sql"
 
     if not patch_path.exists():
-        print(f"  coords_patch.sql not found at {patch_path}, skipping")
+        logger.warning("  coords_patch.sql not found at %s, skipping", patch_path)
         return
 
     sql = patch_path.read_text()
@@ -164,7 +167,7 @@ def apply_coords_patch():
             cur.execute(sql)
         conn.commit()
 
-    print("Coordinate patch applied (XK, MF, BL, GG, JE)")
+    logger.info("Coordinate patch applied (XK, MF, BL, GG, JE)")
 
 # ---------------------------------------------------------------------------
 # Per-country coroutine
@@ -210,7 +213,7 @@ async def fetch_country_metadata(
         record["gdp_per_capita"] = gdp
 
     except Exception as e:
-        print(f"  {name}: enrichment failed — {e}")
+        logger.warning("  %s: enrichment failed — %s", name, e)
 
     return iso2, record
 
@@ -240,15 +243,15 @@ async def _fetch_all_async(countries: list[dict], pop_from_db: dict[str, float])
         results[iso2] = record
         success_count += 1
 
-    print(f"\n--- Metadata fetch breakdown ---")
-    print(f"Successfully fetched: {success_count}")
-    print(f"Failed:               {fail_count}")
-    print(f"Total in dataset:     {len(results)}")
+    logger.info("--- Metadata fetch breakdown ---")
+    logger.info("Successfully fetched: %d", success_count)
+    logger.info("Failed:               %d", fail_count)
+    logger.info("Total in dataset:     %d", len(results))
 
     if fail_countries:
-        print(f"\nFailed countries ({len(fail_countries)}):")
+        logger.info("Failed countries (%d):", len(fail_countries))
         for c in fail_countries:
-            print(f"  {c}")
+            logger.info("  %s", c)
 
     return results
 
@@ -271,35 +274,35 @@ def fetch_metadata_signals() -> dict[str, dict]:
         }
     """
     valid_iso2, valid_iso3 = get_valid_country_codes()
-    print(f"Valid country codes loaded: {len(valid_iso2)}")
+    logger.info("Valid country codes loaded: %d", len(valid_iso2))
 
-    print("\nFetching all locations from UN Data Portal...\n")
+    logger.info("Fetching all locations from UN Data Portal...")
     all_locations = fetch_all_locations(UN_HEADERS)
-    print(f"\nTotal locations from UN API: {len(all_locations)}")
+    logger.info("Total locations from UN API: %d", len(all_locations))
 
     countries, skipped, skipped_not_valid = filter_locations(all_locations, valid_iso2, valid_iso3)
 
-    print(f"\n--- Location filter breakdown ---")
-    print(f"Matched valid countries:  {len(countries)}")
-    print(f"Skipped (invalid):        {skipped}")
-    print(f"Skipped (not valid):      {len(skipped_not_valid)}")
+    logger.info("--- Location filter breakdown ---")
+    logger.info("Matched valid countries:  %d", len(countries))
+    logger.info("Skipped (invalid):        %d", skipped)
+    logger.info("Skipped (not valid):      %d", len(skipped_not_valid))
 
     if not countries:
-        print("No countries found!")
+        logger.warning("No countries found!")
         return {}
 
-    print("\nLoading population totals from DB...\n")
+    logger.info("Loading population totals from DB...")
     pop_from_db = get_latest_population_from_db()
-    print(f"  Loaded population for {len(pop_from_db)} countries")
+    logger.info("  Loaded population for %d countries", len(pop_from_db))
 
-    print("\nFetching metadata signals (async)...\n")
+    logger.info("Fetching metadata signals (async)...")
     results = asyncio.run(_fetch_all_async(countries, pop_from_db))
 
     missing = valid_iso2 - set(results.keys())
     if missing:
-        print(f"\nValid countries with NO metadata ({len(missing)}):")
+        logger.warning("Valid countries with NO metadata (%d):", len(missing))
         for code in sorted(missing):
-            print(f"  {code}")
+            logger.warning("  %s", code)
 
     return results
 
@@ -323,10 +326,10 @@ def store_metadata_signals(signals: dict[str, dict]):
     ]
 
     if not rows:
-        print("No metadata to store")
+        logger.info("No metadata to store")
         return
 
-    print(f"\nPreparing to store metadata for {len(rows)} countries...")
+    logger.info("Preparing to store metadata for %d countries...", len(rows))
 
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -352,12 +355,12 @@ def store_metadata_signals(signals: dict[str, dict]):
             )
         conn.commit()
 
-    print(f"\nSuccessfully stored metadata for {len(rows)} countries")
+    logger.info("Successfully stored metadata for %d countries", len(rows))
     apply_coords_patch()
 
 
 def main():
-    print("Starting metadata fetch...\n")
+    logger.info("Starting metadata fetch...")
 
     try:
         signals = fetch_metadata_signals()
@@ -365,19 +368,19 @@ def main():
         if signals:
             store_metadata_signals(signals)
 
-            print("\nTop 10 by GDP per capita:")
+            logger.info("Top 10 by GDP per capita:")
             by_gdp = sorted(
                 [(iso2, rec["gdp_per_capita"]) for iso2, rec in signals.items() if rec["gdp_per_capita"]],
                 key=lambda x: x[1],
                 reverse=True,
             )
             for i, (iso2, gdp) in enumerate(by_gdp[:10], 1):
-                print(f"  {i}. {iso2}: ${gdp:,.0f}")
+                logger.info("  %d. %s: $%.0f", i, iso2, gdp)
         else:
-            print("No metadata was fetched")
+            logger.warning("No metadata was fetched")
 
     except Exception as e:
-        print(f"Fatal error: {e}")
+        logger.error("Fatal error: %s", e)
         raise
 
 

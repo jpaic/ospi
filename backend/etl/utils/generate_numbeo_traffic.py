@@ -23,12 +23,16 @@ Usage
 """
 
 import csv
+import logging
 import math
 import re
 from pathlib import Path
 
 import httpx
+
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CSV_PATH = DATA_DIR / "numbeo_traffic.csv"
@@ -101,18 +105,18 @@ def _fetch_numbeo_data() -> dict[str, float]:
         name = re.sub(r"\s+", " ", rank_cell).strip()
         iso2 = NAME_TO_ISO2.get(name)
         if not iso2:
-            print(f"  WARNING: unmapped country '{name}' — skipping")
+            logger.warning("  unmapped country '%s' — skipping", name)
             continue
 
         try:
             raw = float(index_cell.replace(",", ""))
         except ValueError:
-            print(f"  WARNING: bad number for '{name}': '{index_cell}'")
+            logger.warning("  bad number for '%s': '%s'", name, index_cell)
             continue
 
         results[iso2] = raw
 
-    print(f"  Scraped {len(results)} countries from Numbeo")
+    logger.info("  Scraped %d countries from Numbeo", len(results))
     return results
 
 
@@ -156,7 +160,7 @@ def _fetch_urbanization(countries: list[dict]) -> dict[str, float]:
     # Patch missing
     urban["TW"] = 79.0
     urban["XK"] = 55.0
-    print(f"  Urbanization data: {len(urban)} countries")
+    logger.info("  Urbanization data: %d countries", len(urban))
     return urban
 
 
@@ -168,17 +172,17 @@ def _normalise(raw: float) -> float:
 
 
 def main():
-    print("Step 1 — scraping Numbeo Traffic Index by Country...")
+    logger.info("Step 1 — scraping Numbeo Traffic Index by Country...")
     numbeo = _fetch_numbeo_data()
 
-    print("Step 2 — fetching country list from World Bank...")
+    logger.info("Step 2 — fetching country list from World Bank...")
     countries = _get_valid_countries()
-    print(f"  {len(countries)} countries")
+    logger.info("  %d countries", len(countries))
 
-    print("Step 3 — fetching urbanisation % from World Bank...")
+    logger.info("Step 3 — fetching urbanisation %% from World Bank...")
     urban = _fetch_urbanization(countries)
 
-    print("Step 4 — fitting estimate model & writing CSV...")
+    logger.info("Step 4 — fitting estimate model & writing CSV...")
 
     # Build a linear model:  Numbeo_log_score ~ urban_pct
     known_x, known_y = [], []
@@ -199,7 +203,7 @@ def main():
     den_xx = sum((known_x[i] - mean_x) ** 2 for i in range(n))
     slope = num_xy / den_xx if den_xx else 0
     intercept = mean_y - slope * mean_x
-    print(f"  Model: score = {slope:.4f} × urban% + {intercept:.2f}")
+    logger.info("  Model: score = %.4f × urban%% + %.2f", slope, intercept)
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -232,8 +236,8 @@ def main():
             writer.writerow([iso2, name, raw, round(urban.get(iso2, 0), 1), score, src])
             scored += 1
 
-    print(f"\nDone — {scored} countries scored ({len(numbeo)} from Numbeo, {estimated} estimated via urban%)")
-    print(f"Output: {CSV_PATH}")
+    logger.info("\nDone — %d countries scored (%d from Numbeo, %d estimated via urban%%)", scored, len(numbeo), estimated)
+    logger.info("Output: %s", CSV_PATH)
 
 
 if __name__ == "__main__":
