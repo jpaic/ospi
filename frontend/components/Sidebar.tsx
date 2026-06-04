@@ -16,6 +16,7 @@ interface Props {
   onSearch: (q: string) => void
   hideTerritories?: boolean
   onToggleTerritories?: (v: boolean) => void
+  onClose?: () => void
 }
 
 function deltaStr(c: Country): string {
@@ -32,7 +33,7 @@ function ConfDot({ conf }: { conf: Country['conf'] }) {
   )
 }
 
-export default function Sidebar({ countries, selected, onSelect, query, onSearch, hideTerritories, onToggleTerritories }: Props) {
+export default function Sidebar({ countries, selected, onSelect, query, onSearch, hideTerritories, onToggleTerritories, onClose }: Props) {
   const [expandedRegions, setExpandedRegions] = useState<string | null>(null)
   const allCountries = useCountries()
   const { noSignals } = useDataSource()
@@ -42,7 +43,17 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
     setExpandedRegions(prev => (prev === name ? null : name))
 
   return (
-    <aside className="w-72 flex flex-col border-r border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0 overflow-hidden">
+    <aside className="w-72 lg:w-72 flex flex-col border-r border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 shrink-0 overflow-hidden">
+      {onClose && (
+        <div className="flex items-center justify-between px-3 pt-2 pb-0 xl:hidden shrink-0">
+          <p className="text-[9px] font-medium tracking-widest uppercase text-zinc-400">Sidebar</p>
+          <button onClick={onClose} className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors" aria-label="Close sidebar">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" className="text-zinc-400">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      )}
       <style>{`
         .sb-scroll::-webkit-scrollbar { width: 3px; }
         .sb-scroll::-webkit-scrollbar-track { background: transparent; }

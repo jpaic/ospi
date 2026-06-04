@@ -62,7 +62,7 @@ export default function LandingPage() {
       <main className="flex-1 flex flex-col items-center justify-center px-4">
 
         {/* ── Signal bars + wordmark ── */}
-        <div className="flex items-end gap-[3px] h-16 mb-5">
+        <div className="flex items-end gap-[3px] h-12 md:h-16 mb-5">
           {[
             { h: 18, col: '#1D9E75' },
             { h: 30, col: '#1D9E75' },
@@ -85,7 +85,7 @@ export default function LandingPage() {
         </p>
 
         {/* ── Stats line ── */}
-        <div className="lp-fade flex items-center gap-3 mb-6">
+        <div className="lp-fade flex items-center justify-center flex-wrap gap-x-3 gap-y-1 mb-6">
           {[
             { label: 'Countries', value: ver?.n_countries ?? '—' },
             { label: 'Signals', value: ver?.n_signals ?? '—' },
@@ -101,7 +101,7 @@ export default function LandingPage() {
         </div>
 
         {/* ── Description ── */}
-        <p className="lp-fade text-[9px] text-zinc-300 dark:text-zinc-700 leading-relaxed text-center max-w-xs mb-8">
+        <p className="lp-fade text-[9px] text-zinc-300 dark:text-zinc-700 leading-relaxed text-center max-w-xs sm:max-w-sm mb-8">
           Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, building, mobility, and internet signals.
         </p>
 

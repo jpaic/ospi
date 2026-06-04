@@ -89,7 +89,7 @@ export function ScatterPlot({ data }: { data: ScatterPoint[] }) {
           <span className={`text-[10px] font-mono transition-colors ${logScale ? 'text-zinc-700 dark:text-zinc-300' : 'text-zinc-400'}`}>log–log</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[520px] mx-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full mx-auto" style={{ maxWidth: W }}>
         {ticks.map(t => (
           <g key={t}>
             <line x1={xScale(t)} y1={PAD.top} x2={xScale(t)} y2={PAD.top + plotH}
@@ -228,7 +228,7 @@ export function HistogramChart({ data, showSigned, onToggleSigned }: {
           </div>
         </div>
       </div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full max-w-[520px] mx-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full mx-auto" style={{ maxWidth: W }}>
         {data.counts.map((c, i) => (
           <rect
             key={i}

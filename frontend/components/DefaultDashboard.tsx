@@ -6,6 +6,7 @@ import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtGap, fmtPct } from '@/lib/fmt'
 import { fetchVersion } from '@/lib/version'
+import { useBreakpointChange } from '@/lib/useBreakpoint'
 import type { Chart as ChartType } from 'chart.js'
 import type { Country } from '@/lib/types'
 
@@ -227,6 +228,24 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
     }
   }, [countries])
 
+  const bpKey = useBreakpointChange()
+
+  // Force chart resize on viewport change
+  useEffect(() => {
+    const onResize = () => {
+      barInst.current?.resize()
+      scatInst.current?.resize()
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Also trigger resize when crossing CSS breakpoints (more reliable than window.resize)
+  useEffect(() => {
+    barInst.current?.resize()
+    scatInst.current?.resize()
+  }, [bpKey])
+
   // ── Chart init ────────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -377,18 +396,12 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
   // ─────────────────────────────────────────────────────────────────────────
 
   return (
-    <div
-      className="h-full overflow-y-auto"
-      style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
-    >
+    <div>
       <style>{`
-        .dd-scroll::-webkit-scrollbar{width:3px}
-        .dd-scroll::-webkit-scrollbar-track{background:transparent}
-        .dd-scroll::-webkit-scrollbar-thumb{background:rgba(113,113,122,0.2);border-radius:99px}
         th button:hover span { text-decoration: underline; text-underline-offset: 2px; }
       `}</style>
-      <div className="dd-scroll h-full overflow-y-auto">
-        <div className="p-4 space-y-4">
+      <div className="h-full">
+        <div className="p-2 sm:p-4 space-y-3 sm:space-y-4">
 
           {/* Header */}
           <div>
@@ -412,11 +425,11 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
           )}
 
           {/* KPI strip */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {statCards.map(k => (
-              <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
+              <div key={k.label} className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-2 sm:px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
-                <p className="text-lg font-semibold leading-none" style={k.color ? { color: k.color } : {}}>
+                <p className="text-base sm:text-lg font-semibold leading-none" style={k.color ? { color: k.color } : {}}>
                   <span className={!k.color ? 'text-zinc-800 dark:text-zinc-100' : ''}>{k.value}</span>
                 </p>
                 <p className="text-[9px] text-zinc-400 mt-1">{k.sub}</p>
@@ -425,20 +438,20 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
           </div>
 
           {/* Divergence bar chart */}
-          <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+          <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Official vs OSPI — top divergence countries</p>
               <span className="text-[9px] text-zinc-300 dark:text-zinc-600">auto-scaled</span>
             </div>
-            <div style={{ height: 140 }}>
+            <div className="overflow-hidden" style={{ height: 140 }}>
               <canvas ref={barRef} />
             </div>
           </div>
 
           {/* Row: scatter + fastest growth */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-w-0">
 
-            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
+            <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal quality vs divergence</p>
                 {noSignals && (
@@ -446,7 +459,7 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
                 )}
               </div>
               <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Higher signal → lower divergence expected</p>
-              <div className={`${noSignals ? 'opacity-40 pointer-events-none' : ''}`} style={{ height: 120 }}>
+              <div className={`overflow-hidden ${noSignals ? 'opacity-40 pointer-events-none' : ''}`} style={{ height: 120 }}>
                 <canvas ref={scatterRef} />
               </div>
 
@@ -493,7 +506,7 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
               )}
             </div>
 
-            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Fastest growing</p>
               <div className="space-y-2">
                 {fastest.map(c => (
@@ -542,77 +555,79 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
               </div>
             </div>
 
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-zinc-100 dark:border-zinc-800">
-                  {columns.map(col => (
-                    <th
-                      key={col.key}
-                      className="text-left px-3 py-1.5"
-                      style={{ whiteSpace: 'nowrap' }}
-                    >
-                      <ThBtn
-                        label={col.label}
-                        col={col.key}
-                        sortKey={sortKey}
-                        sortDir={sortDir}
-                        sortClicks={sortClicks}
-                        onSort={handleSort}
-                      />
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((c, i) => {
-                  const d = calcDelta(c)
-                  const isP = d >= 0
-                  const col = noSignals ? '#a1a1aa' : confColor(c.conf)
-                  const isActive = selected?.name === c.name
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-zinc-100 dark:border-zinc-800">
+                    {columns.map(col => (
+                      <th
+                        key={col.key}
+                        className="text-left px-3 py-1.5"
+                        style={{ whiteSpace: 'nowrap' }}
+                      >
+                        <ThBtn
+                          label={col.label}
+                          col={col.key}
+                          sortKey={sortKey}
+                          sortDir={sortDir}
+                          sortClicks={sortClicks}
+                          onSort={handleSort}
+                        />
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map((c, i) => {
+                    const d = calcDelta(c)
+                    const isP = d >= 0
+                    const col = noSignals ? '#a1a1aa' : confColor(c.conf)
+                    const isActive = selected?.name === c.name
 
-                  return (
-                    <tr
-                      key={c.name}
-                      className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 cursor-pointer transition-colors${isActive
-                        ? 'bg-zinc-100 dark:bg-zinc-800/70'
-                        : i % 2 === 0
-                          ? 'hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
-                          : 'bg-white/50 dark:bg-zinc-950/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
-                        }`}
-                      onClick={() => onSelect?.(c)}
-                    >
-                      <td className="px-3 py-1.5">
-                        <div className="flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full shrink-0 ring-1 ring-offset-1 ring-transparent"
-                            style={{ background: col, ...(isActive ? { ringColor: col } : {}) }} />
-                          <span className="font-medium text-zinc-700 dark:text-zinc-300">{c.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-1.5 text-zinc-400 text-[10px]">{c.region}</td>
-                      <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{fmt(c.official)}</td>
-                      <td className="px-3 py-1.5 font-mono font-medium text-zinc-700 dark:text-zinc-300">{fmt(c.ospi)}</td>
-                      <td className="px-3 py-1.5 font-mono font-semibold" style={{ color: isP ? '#1D9E75' : '#E24B4A' }}>
-                        {fmtPct(d, true)}
-                      </td>
-                      <td className="px-3 py-1.5 font-mono text-[10px]" style={{ color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' }}>
-                        {fmtPct(c.growthRate, true)}
-                      </td>
-                      <td className="px-3 py-1.5">
-                        <span
-                          className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
-                          style={noSignals
-                            ? { background: 'rgba(161,161,170,0.1)', color: '#a1a1aa' }
-                            : { background: `${col}18`, color: col }
-                          }
-                        >
-                          {noSignals ? '—' : confLabel(c.conf)}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                    return (
+                      <tr
+                        key={c.name}
+                        className={`border-b border-zinc-100 dark:border-zinc-800 last:border-0 cursor-pointer transition-colors${isActive
+                          ? 'bg-zinc-100 dark:bg-zinc-800/70'
+                          : i % 2 === 0
+                            ? 'hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
+                            : 'bg-white/50 dark:bg-zinc-950/30 hover:bg-zinc-100/60 dark:hover:bg-zinc-900/60'
+                          }`}
+                        onClick={() => onSelect?.(c)}
+                      >
+                        <td className="px-3 py-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full shrink-0 ring-1 ring-offset-1 ring-transparent"
+                              style={{ background: col, ...(isActive ? { ringColor: col } : {}) }} />
+                            <span className="font-medium text-zinc-700 dark:text-zinc-300">{c.name}</span>
+                          </div>
+                        </td>
+                        <td className="px-3 py-1.5 text-zinc-400 text-[10px]">{c.region}</td>
+                        <td className="px-3 py-1.5 font-mono text-zinc-500 dark:text-zinc-400">{fmt(c.official)}</td>
+                        <td className="px-3 py-1.5 font-mono font-medium text-zinc-700 dark:text-zinc-300">{fmt(c.ospi)}</td>
+                        <td className="px-3 py-1.5 font-mono font-semibold" style={{ color: isP ? '#1D9E75' : '#E24B4A' }}>
+                          {fmtPct(d, true)}
+                        </td>
+                        <td className="px-3 py-1.5 font-mono text-[10px]" style={{ color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' }}>
+                          {fmtPct(c.growthRate, true)}
+                        </td>
+                        <td className="px-3 py-1.5">
+                          <span
+                            className="text-[9px] font-medium px-1.5 py-0.5 rounded-full"
+                            style={noSignals
+                              ? { background: 'rgba(161,161,170,0.1)', color: '#a1a1aa' }
+                              : { background: `${col}18`, color: col }
+                            }
+                          >
+                            {noSignals ? '—' : confLabel(c.conf)}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
         </div>

@@ -160,7 +160,7 @@ export default function ModelPage() {
   return (
     <div className="min-h-screen bg-white dark:bg-zinc-950">
       <NavHeader active="model" />
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-10">
+      <div className="max-w-5xl mx-auto px-2 sm:px-4 py-6 sm:py-8 space-y-6 sm:space-y-10">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <StatCard label="R²" value={m.r_squared?.toFixed(4) ?? '—'} color={r2Color(m.r_squared)}
             sub={m.cv_r_squared != null ? `CV: ${m.cv_r_squared.toFixed(4)}` : undefined} />

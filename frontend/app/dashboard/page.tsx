@@ -22,6 +22,7 @@ function OSPIInner() {
   const [query, setQuery] = useState('')
   const [mapResetKey, setMapResetKey] = useState(0)
   const [hideTerritories, setHideTerritories] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const countries = useCountries()
   const isLoading = useCountriesLoading()
@@ -87,60 +88,64 @@ function OSPIInner() {
 
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-zinc-950 overflow-hidden">
-      <NavHeader active="dashboard" />
+      <NavHeader active="dashboard" onMenuClick={() => setSidebarOpen(true)} />
+
+      {/* Mobile sidebar backdrop */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 bg-black/30 xl:hidden" onClick={() => setSidebarOpen(false)} />
+      )}
 
       <div className="flex flex-1 min-h-0">
-        <Sidebar
-          countries={filtered}
-          selected={selected}
-          onSelect={setSelected}
-          query={query}
-          onSearch={setQuery}
-          hideTerritories={hideTerritories}
-          onToggleTerritories={setHideTerritories}
-        />
+        {/* Sidebar — inline on xl+, drawer on mobile */}
+        <div className={`${sidebarOpen ? 'fixed inset-y-0 left-0 z-50 shadow-xl' : 'hidden'} xl:relative xl:flex xl:shadow-none transition-transform duration-300 ease-in-out`}>
+          <Sidebar
+            countries={filtered}
+            selected={selected}
+            onSelect={(c) => { setSelected(c); setSidebarOpen(false) }}
+            query={query}
+            onSearch={setQuery}
+            hideTerritories={hideTerritories}
+            onToggleTerritories={setHideTerritories}
+            onClose={() => setSidebarOpen(false)}
+          />
+        </div>
 
-        <main className="flex flex-1 min-h-0">
-          <div className="flex-1 overflow-hidden border-r border-zinc-100 dark:border-zinc-800">
-            {selected
-              ? <CountryDetail country={selected} onBack={handleBackFromDetail} />
-              : <DefaultDashboard selected={selected} onSelect={setSelected} countries={visibleCountries} />
-            }
+        <main className="flex flex-1 min-h-0 min-w-0 flex-col xl:flex-row">
+          {/* Main content wrapper (no overflow on flex child — avoids Chrome reflow bug) */}
+          <div className="flex-1 min-w-0 relative z-0 border-r border-zinc-100 dark:border-zinc-800">
+            {/* Absolutely-positioned scroll container — not a direct flex child */}
+            <div className="absolute inset-0 overflow-y-auto" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}>
+              {selected
+                ? <CountryDetail country={selected} onBack={handleBackFromDetail} />
+                : <DefaultDashboard selected={selected} onSelect={setSelected} countries={visibleCountries} />
+              }
+              {/* Right panel embedded on <xl — scrolls with content */}
+              <div className="xl:hidden border-t border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 min-w-0">
+                <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between shrink-0">
+                  <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">World map</p>
+                  {selected && <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">{selected.name}</span>}
+                </div>
+                <div className="w-full max-w-[320px] mx-auto aspect-square">
+                  <WorldMap countries={visibleCountries} selected={selected} onSelect={setSelected} resetKey={mapResetKey} />
+                </div>
+                <div className="p-3 border-t border-zinc-100 dark:border-zinc-800">
+                  {selected ? <QuickStats country={selected} /> : <AnomalyList countries={visibleCountries} onSelect={setSelected} />}
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div
-            className="shrink-0 flex flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900"
-            style={{ width: 320 }}
-          >
+          {/* Right panel — inline on xl+ */}
+          <div className="hidden xl:flex shrink-0 flex-col border-l border-zinc-100 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900" style={{ width: 320 }}>
             <div className="px-3 py-2 border-b border-zinc-100 dark:border-zinc-800 flex items-center justify-between shrink-0">
-              <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">
-                World map
-              </p>
-              {selected && (
-                <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">
-                  {selected.name}
-                </span>
-              )}
+              <p className="text-[9px] uppercase tracking-widest text-zinc-400 font-medium">World map</p>
+              {selected && <span className="text-[9px] text-zinc-400 truncate max-w-[140px]">{selected.name}</span>}
             </div>
-
-            <div style={{ width: 320, height: 320 }} className="shrink-0 overflow-hidden">
-              <WorldMap
-                countries={visibleCountries}
-                selected={selected}
-                onSelect={setSelected}
-                resetKey={mapResetKey}
-              />
+            <div className="shrink-0 overflow-hidden" style={{ width: 320, height: 320 }}>
+              <WorldMap countries={visibleCountries} selected={selected} onSelect={setSelected} resetKey={mapResetKey} />
             </div>
-
-            <div
-              className="flex-1 overflow-y-auto min-h-0 border-t border-zinc-100 dark:border-zinc-800 p-3"
-              style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}
-            >
-              {selected ? (
-                <QuickStats country={selected} />
-              ) : (
-                <AnomalyList countries={visibleCountries} onSelect={setSelected} />
-              )}
+            <div className="flex-1 overflow-y-auto min-h-0 border-t border-zinc-100 dark:border-zinc-800 p-3" style={{ scrollbarWidth: 'thin', scrollbarColor: 'rgba(113,113,122,0.2) transparent' }}>
+              {selected ? <QuickStats country={selected} /> : <AnomalyList countries={visibleCountries} onSelect={setSelected} />}
             </div>
           </div>
         </main>

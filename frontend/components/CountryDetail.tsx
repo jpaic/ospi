@@ -6,6 +6,7 @@ import { confLabel, confColor } from '@/lib/estimator'
 import { fmt, fmtGap, fmtPct, fmtUsd, fmtDensity } from '@/lib/fmt'
 import { useDataSource } from '@/lib/dataSource'
 import { fetchVersion } from '@/lib/version'
+import { useBreakpointChange } from '@/lib/useBreakpoint'
 import type { Chart as ChartType } from 'chart.js'
 
 
@@ -238,10 +239,28 @@ export default function CountryDetail({ country: c, onBack }: Props) {
     }
   }, [c, noSignals, isPos])
 
+  const bpKey = useBreakpointChange()
+
+  // Force chart resize on viewport change
+  useEffect(() => {
+    const onResize = () => {
+      trendInst.current?.resize()
+      radarInst.current?.resize()
+      barInst.current?.resize()
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // Also trigger resize when crossing CSS breakpoints (more reliable than window.resize)
+  useEffect(() => {
+    trendInst.current?.resize()
+    radarInst.current?.resize()
+    barInst.current?.resize()
+  }, [bpKey])
+
   return (
-    <div className="h-full overflow-hidden">
-      <div className="h-full overflow-hidden">
-        <div className="p-4 space-y-4">
+    <div className="p-2 sm:p-4 space-y-3 sm:space-y-4">
 
           {/* ── Header ── */}
           {onBack && (
@@ -273,7 +292,7 @@ export default function CountryDetail({ country: c, onBack }: Props) {
           </div>
 
           {/* ── KPI strip ── */}
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 min-w-0">
             {[
               { label: 'Official pop.', value: fmt(c.official), sub: 'Census reported', color: '' },
               { label: 'OSPI estimate', value: fmt(c.ospi), sub: 'Signal-weighted', color: '#1D9E75' },
@@ -281,7 +300,7 @@ export default function CountryDetail({ country: c, onBack }: Props) {
               { label: 'GDP / capita', value: c.gdpPerCapita ? fmtUsd(c.gdpPerCapita) : '—', sub: 'USD nominal', color: '' },
               { label: 'Annual growth', value: fmtPct(c.growthRate, true), sub: 'Rate p.a.', color: c.growthRate >= 0 ? '#1D9E75' : '#E24B4A' },
             ].map(k => (
-              <div key={k.label} className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-3 py-2.5">
+              <div key={k.label} className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg px-2 sm:px-3 py-2.5">
                 <p className="text-[9px] uppercase tracking-wider text-zinc-400 mb-1">{k.label}</p>
                 <p className="text-base font-semibold leading-none" style={k.color ? { color: k.color } : {}}>
                   <span className={!k.color ? 'text-zinc-800 dark:text-zinc-100' : ''}>{k.value}</span>
@@ -292,9 +311,9 @@ export default function CountryDetail({ country: c, onBack }: Props) {
           </div>
 
           {/* ── Charts row 1: Trend + Radar ── */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
             {/* Trend */}
-            <div className="col-span-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="md:col-span-2 min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Population trend</p>
                 <div className="flex gap-3">
@@ -314,29 +333,29 @@ export default function CountryDetail({ country: c, onBack }: Props) {
                     ))}
                 </div>
               </div>
-              <div style={{ height: 110 }}>
+              <div className="overflow-hidden" style={{ height: 110 }}>
                 <canvas ref={trendRef} />
               </div>
             </div>
 
             {/* Radar */}
-            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-1">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal radar</p>
                 {noSignals && (
                   <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-400">no signals</span>
                 )}
               </div>
-              <div className={noSignals ? 'opacity-40 pointer-events-none' : ''} style={{ height: 118 }}>
+              <div className={`overflow-hidden ${noSignals ? 'opacity-40 pointer-events-none' : ''}`} style={{ height: 118 }}>
                 <canvas ref={radarRef} />
               </div>
             </div>
           </div>
 
           {/* ── Charts row 2: Signal bars + Region bar ── */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-0">
             {/* Signal bars */}
-            <div className="bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Signal scores</p>
                 {noSignals && (
@@ -374,10 +393,10 @@ export default function CountryDetail({ country: c, onBack }: Props) {
             </div>
 
             {/* Region bar chart */}
-            <div className="col-span-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
+            <div className="col-span-2 min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
               <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium mb-2">Regional breakdown</p>
               {c.regions.length > 0 ? (
-                <div style={{ height: 130 }}>
+                <div className="overflow-hidden" style={{ height: 130 }}>
                   <canvas ref={barRef} />
                 </div>
               ) : (
@@ -448,8 +467,6 @@ export default function CountryDetail({ country: c, onBack }: Props) {
             </p>
           </div>
 
-        </div>
-      </div>
     </div>
   )
 }

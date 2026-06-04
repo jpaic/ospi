@@ -370,6 +370,7 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
 
       svg.setAttribute('width', String(W))
       svg.setAttribute('height', String(H))
+      svg.setAttribute('viewBox', `0 0 ${W} ${H}`)
 
       if (!initDoneRef.current) {
         svg.innerHTML = ''
