@@ -1,12 +1,12 @@
-# OpenSignal Population Index (OSPI)
+# OpenSignal Population Index (OSPI) v3
 
-An open-source framework for estimating population using infrastructure signals — telecom activity, electricity consumption, building footprints, internet usage, and mobility data — as a complement to traditional census figures.
+An open-source framework for estimating population using infrastructure signals — telecom activity, electricity consumption, GDP per capita, nighttime lights, and road density — as a complement to traditional census figures.
 
 ---
 
 ## Overview
 
-Official census data is expensive, infrequent, and not always reliable. Methodologies vary and figures can be politically motivated. OSPI addresses this by combining multiple independent infrastructure signals into a per-feature Ridge regression model that produces near-real-time population estimates with confidence scoring.
+Official census data is expensive, infrequent, and not always reliable. Methodologies vary and figures can be politically motivated. OSPI addresses this by combining multiple independent infrastructure signals into an ElasticNet regression model that produces near-real-time population estimates with confidence scoring.
 
 The system is designed to be transparent, reproducible, and deployable against publicly available data. It does not replace census data — it cross-references it.
 
@@ -19,7 +19,7 @@ ETL (Python)  →  PostgreSQL  →  FastAPI backend  →  Next.js frontend
 ```
 
 - **ETL layer** fetches raw signal data per country per year, normalises to log-scale [0, 100] scores, and stores them alongside official UN population figures.
-- **Ridge regression model** trains on high-confidence UN data using per-feature penalties: strong signals (telecom, land area) carry the prediction, weak signals (building, mobility, internet) are regularised toward zero. Continent-level bias adjustments are learned from UN sub-region metadata. Five-fold cross-validation produces out-of-fold residuals and CV R² as a guard against overfitting.
+- **ElasticNet regression model** trains on high-confidence UN data using cross-validated L1+L2 regularisation: L1 prunes irrelevant signals to zero, L2 handles multicollinearity among remaining signals. Missing signal values are imputed via k-nearest neighbours before training. Continent-level bias adjustments are learned from UN sub-region metadata. Five-fold cross-validation produces out-of-fold residuals and CV R² as a guard against overfitting.
 - **Estimator** applies the trained model to any country with sufficient signal coverage, returning an estimate, confidence tier (high / med / low), and signal-by-signal breakdown.
 - **Frontend** renders an interactive world map with per-country detail panels, trend charts, signal breakdowns, an ML model-status dashboard, and a territory filter to exclude non-sovereign entities.
 
@@ -28,12 +28,12 @@ ETL (Python)  →  PostgreSQL  →  FastAPI backend  →  Next.js frontend
 ## Signals
 
 | Signal | Status |
-|---|---|
+| ------ | ------ |
 | Telecom (mobile subscriptions) | 🟢 Live |
 | Electricity consumption | 🟢 Live |
-| Internet usage | 🟢 Live |
-| Building / housing footprint | 🟢 Live |
-| Mobility / traffic activity | 🟢 Live |
+| GDP per capita | 🔧 Planned |
+| Nighttime lights (VIIRS DNB) | 🔧 Planned |
+| Road density | 🔧 Planned |
 
 ---
 
@@ -49,9 +49,9 @@ Medium variant, 2010–2024. Used as the official baseline all estimates are mea
 |---|---|---|
 | Telecom | World Bank WDI | `IT.CEL.SETS` — total mobile cellular subscriptions |
 | Electricity | World Bank WDI | `EG.USE.ELEC.KH.PC` × land area (total consumption proxy) |
-| Internet | World Bank WDI | `IT.NET.BBND` — total fixed broadband subscriptions |
-| Building | Microsoft Global ML Building Footprints | Total building count per country |
-| Mobility | Numbeo Traffic Index | Composite congestion score per country |
+| GDP per capita | World Bank WDI | `NY.GDP.PCAP.CD` — gross domestic product per capita |
+| Nighttime lights | NASA Black Marble / NOAA VIIRS | Annual cloud-free VIIRS DNB composite (planned ETL) |
+| Road density | World Bank WDI | `IS.ROD.DNST.K2` — km of road per 100 km² land area |
 
 ### Land area
 **World Bank** (`AG.LND.TOTL.K2`) — static land area in km², pulled into `country_metadata` as a size-anchor feature for the model.
@@ -63,7 +63,7 @@ World Bank country list (used to filter valid sovereign states and exclude regio
 
 ## Model
 
-The model is a Ridge (L2-regularised) linear regression with per-feature penalty. Signal scores, land area, signal count, and continent dummies are all included as features:
+The model is an ElasticNet (L1+L2 regularised) linear regression with cross-validated regularisation strength. Signal scores, land area, signal count, and continent dummies are all included as features:
 
 ```
 log(population)  =  intercept  +  Σ wᵢ · signal_scoreᵢ  +  w_area · log(area_km²)  +  w_sig · signal_count  +  Σ w_c · continent_c
@@ -73,36 +73,22 @@ All features are standardised (zero mean, unit variance) during training; the sc
 
 ### Regularisation
 
-Each feature receives its own penalty α to reflect its predictive strength:
+ElasticNetCV automatically selects the optimal L1/L2 mix and regularisation strength via 5-fold cross-validation:
 
-| Feature | α | Role |
+| Parameter | Search Range | Purpose |
 |---|---|---|
-| Telecom | 0.001 | Near-OLS — strongest signal (r ≈ 0.98 with log-population) |
-| Electricity | 0.1 | Mild shrinkage — moderate contribution |
-| Building | 10.0 | Heavy shrinkage — effectively pruned |
-| Mobility | 10.0 | Heavy shrinkage — effectively pruned |
-| Internet | 10.0 | Heavy shrinkage — effectively pruned |
-| log(area_km²) | 1e-6 | Effectively unregularised — size anchor |
-| signal_count | 0.1 | Mild shrinkage — useful when coverage varies |
-| Continent dummies (4) | 1.0 | Mild regularisation — Europe is the reference level |
+| α (overall penalty) | `logspace(-4, 1, 20)` — from 0.0001 to 10 | Controls total shrinkage |
+| l1_ratio | `[0.1, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0]` | Mix between L1 (lasso) and L2 (ridge) regularisation |
 
-The closed-form solution penalises each feature independently:
+L1 regularisation automatically prunes irrelevant signals (coefficient → 0), while L2 handles multicollinearity among the remaining signals. This replaces the previous manual per-feature α approach.
 
-```
-ŵ = (XᵀX + diag(α))⁻¹ Xᵀy
-```
+### Missing signal imputation
+
+During training, missing signal values are imputed via **k-nearest neighbours** (k=5, distance-weighted) using the signal profiles of the 5 most similar countries. This preserves regional patterns better than mean imputation. At inference time, missing signals fall back to the training-set scaled mean (zero after standardisation).
 
 ### Continent adjustment
 
 UN sub-regions are mapped to five continents (Africa, Americas, Asia, Europe, Oceania) and one-hot encoded with Europe dropped as the reference level. At inference, the estimator looks up the country's UN sub-region, maps it to a continent, and applies the learned continent-level bias stored in `region_coefs` (JSONB in `model_weights`).
-
-### Performance
-
-| Metric | Value |
-|---|---|
-| In-sample R² | 0.9801 |
-| 5-fold CV R² | 0.9756 |
-| Training countries | 148 |
 
 ### Signal normalisation
 
@@ -112,9 +98,9 @@ Raw signal values are log-transformed and min-max scaled to a [0, 100] score per
 |---|---|---|
 | Telecom | log(IT.CEL.SETS) | [1 000, 2 000 000 000] |
 | Electricity | log(kWh × area_km²) | [10 000, 500 000 000 000] |
-| Building | log(bld_count × 1 000 000) | [10 000, 500 000 000] |
-| Mobility | log(Numbeo score) | [10, 100] |
-| Internet | log(IT.NET.BBND) | [10, 1 000 000 000] |
+| GDP per capita | log(NY.GDP.PCAP.CD) | [100, 200 000] |
+| Nighttime lights | log(VIIRS DNB radiance) | TBD — determined by dataset |
+| Road density | log(IS.ROD.DNST.K2) | [0.1, 500] |
 
 ### Confidence tiers
 
@@ -129,7 +115,7 @@ A country's confidence depends on signal coverage and, when available, its out-o
 
 ### Fallback for missing data
 
-Countries with gaps in signal coverage impute missing features using the training-set scaled mean (zero after standardisation, which is equivalent to contributing nothing to the log estimate). On the inference side the same scaler mean is used, so missing signals produce no bias. If all signals are missing, no estimate is returned.
+Countries with gaps in signal coverage impute missing features using the training-set scaled mean (zero after standardisation, which is equivalent to contributing nothing to the log estimate). On the inference side the same scaler mean is used, so missing signals produce no bias. During training, k-nearest neighbours imputation is used instead, leveraging the signal profiles of similar countries for better coefficient estimates. If all signals are missing, no estimate is returned.
 
 ---
 
@@ -137,11 +123,9 @@ Countries with gaps in signal coverage impute missing features using the trainin
 
 **World Bank coverage gaps.** WDI does not carry data for Taiwan (`TW`), Palestine (`PS`), and a small number of territories. Taiwan is the most significant omission (~23M people).
 
-**Signal availability varies by year.** Electricity and internet data tend to lag 1–2 years. Countries with fewer than two available signals fall back to a lower confidence tier.
+**Signal availability varies by year.** Electricity and road density data tend to lag 1–2 years. Countries with fewer than two available signals fall back to a lower confidence tier.
 
-**Building signal** uses the Microsoft Global ML Building Footprints dataset (~200 countries). The raw building count is used directly (not density). Countries with missing, zero, or corrupted footprint data are imputed from land area, urbanisation, and GDP.
-
-**Mobility signal** scrapes the Numbeo Traffic Index by Country page (89 countries of direct data); the remaining countries are estimated via a linear regression on urbanisation percentage.
+**Nighttime lights, GDP per capita, and road density are not yet implemented.** These signals are planned for the v3 release but require new ETL pipelines and schema changes. The model currently runs on telecom and electricity only.
 
 **6 countries have no land-area data** from the World Bank (VG, TW, GI, KP, MK, XK). Their `log(area)` falls back to the training-set mean, which reduces prediction accuracy for microstates such as Gibraltar.
 
@@ -152,7 +136,7 @@ Countries with gaps in signal coverage impute missing features using the trainin
 ## Stack
 
 - **Backend:** Python, FastAPI, PostgreSQL, psycopg2, scikit-learn, httpx
-- **ETL:** World Bank API (WDI), UN Data Portal API, Numbeo
+- **ETL:** World Bank API (WDI), UN Data Portal API
 - **Frontend:** Next.js, TypeScript, Chart.js, D3, Tailwind CSS
 - **Deployment:** Vercel (frontend + backend serverless)
 
