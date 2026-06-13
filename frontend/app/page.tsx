@@ -102,7 +102,7 @@ export default function LandingPage() {
 
         {/* ── Description ── */}
         <p className="lp-fade text-[9px] text-zinc-300 dark:text-zinc-700 leading-relaxed text-center max-w-xs sm:max-w-sm mb-8">
-          Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, GDP per capita, nightlights, and road density signals.
+          Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, GDP per capita, nightlights, and mobility signals.
         </p>
 
         {/* ── Nav buttons ── */}

@@ -63,7 +63,7 @@ def _load_training_data(conn) -> list[dict]:
                     MAX(CASE WHEN ls.signal_type = 'telecom'      THEN ls.score END) AS telecom,
                     MAX(CASE WHEN ls.signal_type = 'electricity'  THEN ls.score END) AS electricity,
                     MAX(CASE WHEN ls.signal_type = 'nightlights'  THEN ls.score END) AS nightlights,
-                    MAX(CASE WHEN ls.signal_type = 'road_density' THEN ls.score END) AS road_density
+                    MAX(CASE WHEN ls.signal_type = 'mobility' THEN ls.score END) AS mobility
                 FROM latest_pop lp
                 LEFT JOIN latest_signals ls ON ls.iso2 = lp.iso2
                 LEFT JOIN country_metadata cm ON cm.iso2 = lp.iso2
@@ -144,13 +144,13 @@ def _persist_model(conn, weights: dict, scaler_mean: list, scaler_scale: list,
         cur.execute(
             """
             INSERT INTO model_weights
-                (intercept, telecom, electricity, gdp_per_capita, nightlights, road_density,
+                (intercept, telecom, electricity, gdp_per_capita, nightlights, mobility,
                  log_area_km2, signal_count, lambda,
                  r_squared, cv_r_squared, n_training, scaler_mean, scaler_scale,
                  region_coefs, version)
             VALUES
                 (%(intercept)s, %(telecom)s, %(electricity)s, %(gdp_per_capita)s,
-                 %(nightlights)s, %(road_density)s, %(log_area_km2)s, %(signal_count)s,
+                 %(nightlights)s, %(mobility)s, %(log_area_km2)s, %(signal_count)s,
                  %(lambda)s,
                  %(r_squared)s, %(cv_r_squared)s, %(n_training)s,
                  %(scaler_mean)s, %(scaler_scale)s, %(region_coefs)s::jsonb,

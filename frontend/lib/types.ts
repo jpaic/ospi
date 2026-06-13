@@ -3,7 +3,7 @@ export interface SignalScores {
   electricity: number
   gdp_per_capita: number
   nightlights: number
-  road_density: number
+  mobility: number
 }
 
 export interface HistoryPoint {

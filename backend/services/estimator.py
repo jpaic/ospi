@@ -31,7 +31,7 @@ from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT
 
 logger = logging.getLogger(__name__)
 
-SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "road_density"]
+SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"]
 
 # ── v1 fallback constants (used only when model_weights is empty) ─────────────
 
@@ -40,7 +40,7 @@ _V1_WEIGHTS = {
     "electricity":    0.25,
     "gdp_per_capita": 0.20,
     "nightlights":    0.15,
-    "road_density":   0.15,
+    "mobility":   0.15,
 }
 
 
@@ -487,7 +487,7 @@ def _estimate_history_v1(iso2_list: list[str], conn) -> dict[str, list[dict]]:
                     ('electricity', 0.25::numeric),
                     ('gdp_per_capita', 0.20::numeric),
                     ('nightlights', 0.15::numeric),
-                    ('road_density', 0.15::numeric)
+                    ('mobility', 0.15::numeric)
             ),
             yearly AS (
                 SELECT

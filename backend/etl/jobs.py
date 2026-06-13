@@ -5,7 +5,6 @@ from etl.signals.population import fetch_population_signals, store_population_si
 from etl.signals.electricity import fetch_electricity_signals, store_electricity_signals
 from etl.signals.telecom import fetch_telecom_signals, store_telecom_signals
 from etl.signals.nightlights import fetch_nightlights_signals, store_nightlights_signals
-from etl.signals.road_density import fetch_road_density_signals, store_road_density_signals
 from etl.training.confidence import update_confidence
 from db.connection import get_conn
 
@@ -72,11 +71,6 @@ def run_nightlights():
              lambda: clear_signal_type("nightlights"))
 
 
-def run_road_density():
-    _run_etl("road_density", fetch_road_density_signals, store_road_density_signals,
-             lambda: clear_signal_type("road_density"))
-
-
 def run_model_training() -> dict:
     from etl.training.trainer import run_training
     from services.estimator import _invalidate_model_cache
@@ -125,7 +119,6 @@ if __name__ == "__main__":
     run_electricity()
     run_telecom()
     run_nightlights()
-    run_road_density()
     logger.info("ETL jobs completed.")
 
     run_model_training()

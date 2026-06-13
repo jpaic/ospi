@@ -1,4 +1,5 @@
 import logging
+import math
 import os
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
@@ -40,6 +41,27 @@ _retrain_status: dict[str, str | dict | None] = {"status": "idle", "result": Non
 # NOTE: `/countries/full` must be defined BEFORE `/countries/{iso2}` so FastAPI
 # matches the literal "full" before trying it as an iso2 parameter.
 
+GDP_NORM_MIN = 100
+GDP_NORM_MAX = 200_000
+
+
+def _normalise_gdp_signal(gdp_raw: float | None) -> float | None:
+    if gdp_raw is None or gdp_raw <= 0:
+        return None
+    safe = max(min(gdp_raw, GDP_NORM_MAX), GDP_NORM_MIN)
+    log_val = math.log(safe)
+    log_min = math.log(GDP_NORM_MIN)
+    log_max = math.log(GDP_NORM_MAX)
+    return round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
+
+
+def _inject_gdp(signals_map: dict[str, dict], iso2: str, gdp_raw: float | None):
+    """Inject normalised gdp_per_capita into a country's signals dict."""
+    gdp_norm = _normalise_gdp_signal(gdp_raw)
+    if gdp_norm is not None:
+        signals_map.setdefault(iso2, {}).setdefault("gdp_per_capita", gdp_norm)
+
+
 def get_signals_for_country(iso2: str) -> dict:
     """Returns {signal_type: score} for the latest year of each type."""
     with get_conn() as conn:
@@ -54,14 +76,21 @@ def get_signals_for_country(iso2: str) -> dict:
                 (iso2,)
             )
             rows = cur.fetchall()
-    return {
+            cur.execute(
+                "SELECT gdp_per_capita FROM country_metadata WHERE iso2 = %s",
+                (iso2,),
+            )
+            gdp_row = cur.fetchone()
+    result = {
         row[0]: float(row[1]) if row[1] is not None else None
         for row in rows
     }
+    _inject_gdp({iso2: result}, iso2, gdp_row[0] if gdp_row else None)
+    return result
 
 
 def get_all_signals_bulk() -> dict[str, dict]:
-    """Returns {iso2: {signal_type: score}} using two queries total."""
+    """Returns {iso2: {signal_type: score}} with gdp_per_capita injected from metadata."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -72,11 +101,17 @@ def get_all_signals_bulk() -> dict[str, dict]:
                 """
             )
             rows = cur.fetchall()
+            cur.execute(
+                "SELECT iso2, gdp_per_capita FROM country_metadata WHERE gdp_per_capita IS NOT NULL"
+            )
+            gdp_rows = {r[0]: float(r[1]) if r[1] is not None else None for r in cur.fetchall()}
     result: dict[str, dict] = {}
     for iso2, signal_type, score in rows:
         if iso2 not in result:
             result[iso2] = {}
         result[iso2][signal_type] = float(score) if score is not None else None
+    for iso2, gdp_raw in gdp_rows.items():
+        _inject_gdp(result, iso2, gdp_raw)
     return result
 
 
@@ -160,7 +195,7 @@ def build_signals(signals: dict) -> dict:
         "electricity":    signals.get("electricity"),
         "gdp_per_capita": signals.get("gdp_per_capita"),
         "nightlights":    signals.get("nightlights"),
-        "road_density":   signals.get("road_density"),
+        "mobility":   signals.get("mobility"),
     }
 
 
@@ -304,7 +339,7 @@ def _build_details(model_id: int) -> dict:
             "intercept": model.get("intercept"),
             "coefficients": {
                 k: model.get(k)
-                for k in ["telecom", "electricity", "gdp_per_capita", "nightlights", "road_density", "log_area_km2", "signal_count"]
+                for k in ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility", "log_area_km2", "signal_count"]
             },
             "region_coefs": model.get("region_coefs"),
         },
@@ -466,7 +501,7 @@ def model_status():
             "electricity":    model.get("electricity"),
             "gdp_per_capita": model.get("gdp_per_capita"),
             "nightlights":    model.get("nightlights"),
-            "road_density":   model.get("road_density"),
+            "mobility":   model.get("mobility"),
         },
         "mode": "v2_regression",
     }

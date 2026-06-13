@@ -79,7 +79,7 @@ function normalizeSignals(
     electricity:    normalizeSignal(signals?.electricity),
     gdp_per_capita: normalizeSignal(signals?.gdp_per_capita),
     nightlights:    normalizeSignal(signals?.nightlights),
-    road_density:   normalizeSignal(signals?.road_density),
+    mobility:       normalizeSignal(signals?.mobility),
   }
 }
 

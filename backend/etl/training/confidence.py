@@ -9,7 +9,7 @@ Logic
 A country's confidence is determined by two factors:
 
 1. Signal coverage  — what fraction of the 5 signals (telecom, electricity,
-   gdp_per_capita, nightlights, road_density) are non-null in the most recent year.
+    gdp_per_capita, nightlights, mobility) are non-null in the most recent year.
 
 2. Population years — how many distinct years of population data exist
    for that country (out of the possible 2010–2024 window = 15 years).

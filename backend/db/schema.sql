@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS model_weights (
     gdp_per_capita    FLOAT NOT NULL DEFAULT 0,
     nightlights       FLOAT NOT NULL DEFAULT 0,
     road_density      FLOAT NOT NULL DEFAULT 0,
+    mobility          FLOAT NOT NULL DEFAULT 0,
     signal_count      FLOAT NOT NULL DEFAULT 0,
     lambda            FLOAT NOT NULL,          -- regularisation strength used
     l1_ratio          FLOAT,                   -- ElasticNet L1 mix ratio

@@ -65,7 +65,7 @@ def load_all_training_data() -> list[dict]:
                         MAX(CASE WHEN ls.signal_type = 'telecom'      THEN ls.score END) AS telecom,
                         MAX(CASE WHEN ls.signal_type = 'electricity'  THEN ls.score END) AS electricity,
                         MAX(CASE WHEN ls.signal_type = 'nightlights'  THEN ls.score END) AS nightlights,
-                        MAX(CASE WHEN ls.signal_type = 'road_density' THEN ls.score END) AS road_density
+                        MAX(CASE WHEN ls.signal_type = 'mobility' THEN ls.score END) AS mobility
                     FROM latest_pop lp
                     LEFT JOIN latest_signals ls ON ls.iso2 = lp.iso2
                     LEFT JOIN country_metadata cm ON cm.iso2 = lp.iso2

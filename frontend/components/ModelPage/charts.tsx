@@ -9,7 +9,7 @@ const SIGNAL_COLORS: Record<string, string> = {
   electricity:    '#EF9F27',
   gdp_per_capita: '#8B5CF6',
   nightlights:    '#FBBF24',
-  road_density:   '#EC4899',
+  mobility:       '#EC4899',
   log_area_km2:   '#06B6D4',
   signal_count:   '#F97316',
 }
@@ -19,7 +19,7 @@ const SIGNAL_LABELS: Record<string, string> = {
   electricity:    'Electricity',
   gdp_per_capita: 'GDP pc',
   nightlights:    'Nightlights',
-  road_density:   'Road Density',
+  mobility:       'Mobility',
   log_area_km2:   'Log Area',
   signal_count:   'Signal Count',
 }

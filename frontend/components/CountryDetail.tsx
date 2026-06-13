@@ -17,7 +17,7 @@ const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
   { key: 'electricity', label: 'Electricity' },
   { key: 'gdp_per_capita', label: 'GDP pc' },
   { key: 'nightlights', label: 'Nightlights' },
-  { key: 'road_density', label: 'Road Density' },
+  { key: 'mobility', label: 'Mobility' },
 ]
 
 function signalColor(v: number): string {
@@ -158,7 +158,7 @@ export default function CountryDetail({ country: c, onBack }: Props) {
       radarInst.current = new Chart(radarRef.current!, {
         type: 'radar',
         data: {
-          labels: ['Telecom', 'Electricity', 'GDP pc', 'Nightlights', 'Road Density'],
+          labels: ['Telecom', 'Electricity', 'GDP pc', 'Nightlights', 'Mobility'],
           datasets: [{
             data: SIGNALS.map(s => c.signals[s.key]),
             backgroundColor: noSignals

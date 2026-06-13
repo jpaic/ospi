@@ -5,7 +5,7 @@ with sub-dicts of {signal_type: value}.
 """
 from collections import defaultdict
 
-SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "road_density"]
+SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"]
 
 
 def pivot_signals(rows: list[dict]) -> dict[str, dict]:
