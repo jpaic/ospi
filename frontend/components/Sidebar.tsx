@@ -7,6 +7,7 @@ import { fmt, fmtB, fmtPct } from '@/lib/fmt'
 import { useCountries } from '@/lib/useCountries'
 import { useDataSource } from '@/lib/dataSource'
 import ModelStatus from '@/components/ModelStatus'
+import VersionSwitcher from '@/components/VersionSwitcher'
  
 interface Props {
   countries: Country[]
@@ -144,6 +145,11 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           />
         </div>
 
+        {/* Model version switcher */}
+        <div className="mb-2">
+          <VersionSwitcher />
+        </div>
+
         {/* Search */}
         <div className="relative">
           <svg className="absolute left-2 top-1/2 -translate-y-1/2 text-zinc-400" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -187,7 +193,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
           const hasReg = c.regions.length > 0
           const regOpen = expandedRegions === c.name
           const divAbs = Math.abs(c.ospi - c.official)
-          const avgSig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+          const avgSig = Math.round(Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5)
 
           return (
             <li key={c.name} className="border-b border-zinc-50 dark:border-zinc-900">

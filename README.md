@@ -143,7 +143,7 @@ Countries with gaps in signal coverage impute missing features using the trainin
 
 ## Changelog
 
-### v3 (2025–2026)
+### v3 (2026)
 
 - **Signals (final set):** telecom, electricity, gdp_per_capita, nightlights, mobility — five live signals
 - **Ridge regression:** replaced ElasticNet (L1 was zeroing out features) with RidgeCV + population-weighted training
@@ -156,14 +156,14 @@ Countries with gaps in signal coverage impute missing features using the trainin
 - **Backend schema:** `version` column in `model_weights` for branch isolation (v2 Ridge / v3 Ridge)
 - **Frontend:** signal colors/labels updated for new signals
 
-### v2 (2024)
+### v2 (2026)
 
 - Ridge regression with per-feature penalisation
 - StandardScaler + log_area_km2 feature
 - Continent-level adjustments via region_coefs
 - Out-of-fold residuals and cv_r_squared
 
-### v1 (2024)
+### v1 (2025)
 
 - Initial release: correction-factor fallback model
 - Five original signals: telecom, electricity, building, mobility, internet

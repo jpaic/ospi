@@ -6,6 +6,7 @@ import { useDataSource } from '@/lib/dataSource'
 import { confColor, confLabel, globalStats } from '@/lib/estimator'
 import { fmt, fmtB, fmtGap, fmtPct } from '@/lib/fmt'
 import { fetchVersion } from '@/lib/version'
+import { getModelVersion } from '@/lib/modelVersion'
 import { useBreakpointChange } from '@/lib/useBreakpoint'
 import type { Chart as ChartType } from 'chart.js'
 import type { Country } from '@/lib/types'
@@ -146,12 +147,44 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
 
   const stats = useMemo(() => globalStats(countries), [countries])
 
-  const topDivergence = useMemo(
-    () => [...countries]
+  // ── Model outliers ─────────────────────────────────────────────────────────
+
+  interface OutlierPoint {
+    iso2: string; name: string; official: number; ospi: number;
+    residual: number; residual_pct: number
+  }
+
+  const [outliers, setOutliers] = useState<OutlierPoint[]>([])
+  const [outliersLoading, setOutliersLoading] = useState(true)
+
+  useEffect(() => {
+    setOutliersLoading(true)
+    const base = (process.env.NEXT_PUBLIC_BACKEND_URL ?? '').replace(/\/+$/, '')
+    if (!base) { setOutliersLoading(false); return }
+    const version = getModelVersion()
+    const qs = version === 'v3' ? '' : `?version=${version}`
+    fetch(`${base}/model/outliers${qs}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { setOutliers(d); setOutliersLoading(false) })
+      .catch(() => setOutliersLoading(false))
+  }, [])
+
+  const topDivergence = useMemo(() => {
+    if (outliers.length > 0) {
+      return outliers.slice(0, 8).map(o => {
+        const c = countries.find(c => c.iso === o.iso2)
+        return {
+          name: o.name,
+          official: o.official,
+          ospi: o.ospi,
+        }
+      })
+    }
+    return [...countries]
       .sort((a, b) => Math.abs(calcDelta(b)) - Math.abs(calcDelta(a)))
-      .slice(0, 8),
-    [countries],
-  )
+      .slice(0, 8)
+        .map(c => ({ name: c.name, official: c.official, ospi: c.ospi }))
+  }, [outliers, countries])
 
   const declining = useMemo(
     () => [...countries]
@@ -207,7 +240,7 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
 
   const scatterPoints = useMemo(
     () => countries.map(c => ({
-      x: parseFloat((Object.values(c.signals).reduce((a, b) => a + b, 0) / 5).toFixed(2)),
+      x: parseFloat((Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5).toFixed(2)),
       y: parseFloat(Math.abs(calcDelta(c)).toFixed(2)),
       label: c.name,
       color: confColor(c.conf),
@@ -330,36 +363,38 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
                 ? (isDark ? 'rgba(113,113,122,0.3)' : 'rgba(161,161,170,0.3)')
                 : p.color + 'bb'
             ),
-            pointRadius: 5,
-            pointHoverRadius: 7,
+            pointRadius: 4,
+            pointHoverRadius: 6,
           }],
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           plugins: {
-            legend: { display: false },
+            legend: { display: true, labels: { color: tick, font: { size: 9 }, boxWidth: 10, padding: 12 } },
             tooltip: {
               ...tooltipBase,
               callbacks: {
                 label: (ctx) => {
                   const d = ctx.raw as ScatterPoint
-                  return ` ${d.label}  sig:${d.x.toFixed(2)}  div:${d.y.toFixed(2)}%`
+                  return ` ${d.label}  sig:${d.x.toFixed(2)}  div:±${d.y.toFixed(2)}%`
                 },
               },
             },
           },
           scales: {
             x: {
-              title: { display: true, text: 'Avg signal score', color: tick, font: { size: 9 } },
-              ticks: { color: tick, font: { size: 9 }, callback: v => (v as number).toFixed(0) },
+                title: { display: true, text: 'Avg signal score', color: tick, font: { size: 9 } },
+              ticks: { color: tick, font: { size: 9 }, callback: v => fmt(v as number) },
               grid: { color: grid },
               border: { display: false },
+              min: 0,
             },
             y: {
-              title: { display: true, text: 'Divergence %', color: tick, font: { size: 9 } },
-              ticks: { color: tick, font: { size: 9 }, callback: v => `${(v as number).toFixed(2)}%` },
+                title: { display: true, text: '|Divergence| %', color: tick, font: { size: 9 } },
+              ticks: { color: tick, font: { size: 9 }, callback: v => fmt(v as number) },
               grid: { color: grid },
               border: { display: false },
+              min: 0,
             },
           },
         },
@@ -440,15 +475,15 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
           {/* Divergence bar chart */}
           <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Official vs OSPI — top divergence countries</p>
-              <span className="text-[9px] text-zinc-300 dark:text-zinc-600">auto-scaled</span>
+              <p className="text-[10px] uppercase tracking-wider text-zinc-400 font-medium">Official vs OSPI — top model outliers</p>
+              <span className="text-[9px] text-zinc-300 dark:text-zinc-600">largest residuals</span>
             </div>
             <div className="overflow-hidden" style={{ height: 140 }}>
               <canvas ref={barRef} />
             </div>
           </div>
 
-          {/* Row: scatter + fastest growth */}
+          {/* Row: outliers scatter + fastest growth */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 min-w-0">
 
             <div className="min-w-0 bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-lg p-3 flex flex-col">
@@ -458,20 +493,19 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
                   <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-400">no signals</span>
                 )}
               </div>
-              <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Higher signal → lower divergence expected</p>
+              <p className="text-[9px] text-zinc-300 dark:text-zinc-600 mb-2">Avg signal score vs |divergence| · coloured by confidence score</p>
               <div className={`overflow-hidden ${noSignals ? 'opacity-40 pointer-events-none' : ''}`} style={{ height: 120 }}>
                 <canvas ref={scatterRef} />
               </div>
-
               {!noSignals && (
                 <div className="mt-3 pt-2.5 border-t border-zinc-100 dark:border-zinc-800 space-y-2">
                   {(() => {
-                    const highSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) >= 75)
-                    const lowSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5) < 50)
+                    const highSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5) >= 75)
+                    const lowSigCountries = countries.filter(c => Math.round(Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5) < 50)
                     const avgDivHighSig = (highSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (highSigCountries.length || 1)).toFixed(2)
                     const avgDivLowSig = (lowSigCountries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / (lowSigCountries.length || 1)).toFixed(2)
-                    const outliers = countries.filter(c => {
-                      const sig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+                    const sigDivOutliers = countries.filter(c => {
+                      const sig = Math.round(Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5)
                       const div = Math.abs(calcDelta(c))
                       return (sig >= 75 && div > 5) || (sig < 50 && div < 3)
                     })
@@ -487,18 +521,17 @@ export default function DefaultDashboard({ selected, onSelect, countries: propCo
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-[9px] text-zinc-400">Signal–divergence outliers</span>
-                          <span className="text-[9px] font-mono font-medium text-amber-500">{outliers.length} countries</span>
+                          <span className="text-[9px] font-mono font-medium text-amber-500">{sigDivOutliers.length} countries</span>
                         </div>
                         <p className="text-[9px] text-zinc-300 dark:text-zinc-600 leading-relaxed">
                           Countries breaking the expected pattern: high signal (≥75) but &gt;5% divergence, or low signal (&lt;50) but &lt;3% divergence.
-                          {outliers.length > 0 && <> e.g. <span className="text-zinc-400 dark:text-zinc-500">{outliers.slice(0, 2).map(c => c.name).join(', ')}</span>.</>}
+                          {sigDivOutliers.length > 0 && <> e.g. <span className="text-zinc-400 dark:text-zinc-500">{sigDivOutliers.slice(0, 2).map(c => c.name).join(', ')}</span>.</>}
                         </p>
                       </>
                     )
                   })()}
                 </div>
               )}
-
               {noSignals && (
                 <p className="mt-3 text-[9px] text-zinc-300 dark:text-zinc-600 border-t border-zinc-100 dark:border-zinc-800 pt-2.5">
                   Signal insight unavailable — run your model to populate signal scores.

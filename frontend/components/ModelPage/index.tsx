@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import NavHeader from '@/components/NavHeader'
 import { hideNavOverlay, showNavOverlay } from '@/lib/navigation'
 import { cacheGet, cacheSet } from '@/lib/cache'
+import { getModelVersion } from '@/lib/modelVersion'
 import type { DetailsResponse, Histogram } from './types'
 import { StatCard, SectionHeader } from './statCard'
 import { ScatterPlot, HistogramChart, DistBar, FeatureBars } from './charts'
@@ -43,7 +44,10 @@ export default function ModelPage() {
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 15_000)
 
-    fetch(`${base}/model/details`, { signal: controller.signal })
+    const version = getModelVersion()
+    const qs = version === 'v3' ? '' : `?version=${version}`
+
+    fetch(`${base}/model/details${qs}`, { signal: controller.signal })
       .then(r => {
         clearTimeout(timeout)
         if (!r.ok) throw new Error(`HTTP ${r.status}`)

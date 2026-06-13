@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import Link from 'next/link'
+import { getModelVersion } from '@/lib/modelVersion'
 
 interface ModelStatus {
   trained:      boolean
@@ -11,14 +12,8 @@ interface ModelStatus {
   n_training:   number | null
   lambda:       number | null
   mode:         'v2_regression' | 'v1_fallback'
-  coefficients?: {
-    intercept:   number | null
-    telecom:     number | null
-    electricity: number | null
-    gdp_per_capita: number | null
-    nightlights:    number | null
-    mobility:       number | null
-  }
+  signal_keys?: string[]
+  coefficients?: Record<string, number | null>
 }
 
 interface Props {
@@ -33,9 +28,13 @@ interface Props {
 const SIGNAL_COLORS: Record<string, string> = {
   telecom:        '#1D9E75',
   electricity:    '#EF9F27',
+  building:       '#3B82F6',
+  internet:       '#A855F7',
   gdp_per_capita: '#8B5CF6',
   nightlights:    '#FBBF24',
   mobility:       '#EC4899',
+  log_area_km2:   '#71717a',
+  signal_count:   '#71717a',
 }
 
 function CoefBar({ name, value }: { name: string; value: number | null }) {
@@ -86,7 +85,9 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
   const fetchStatus = useCallback(async () => {
     if (!base) return
     try {
-      const res = await fetch(`${base}/model/status`)
+      const version = getModelVersion()
+      const qs = version === 'v3' ? '' : `?version=${version}`
+      const res = await fetch(`${base}/model/status${qs}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: ModelStatus = await res.json()
       setStatus(data)
@@ -255,12 +256,12 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
           </div>
 
           {/* Coefficient bars */}
-          {isV2 && s.coefficients && (
+          {isV2 && s.coefficients && s.signal_keys && (
             <div>
               <p className="text-[8px] uppercase tracking-wider text-zinc-400 mb-1.5">
                 Signal coefficients
               </p>
-              {(['telecom', 'electricity', 'gdp_per_capita', 'nightlights', 'mobility'] as const).map(k => (
+              {s.signal_keys.map(k => (
                 <CoefBar key={k} name={k} value={s.coefficients![k]} />
               ))}
               <div className="flex justify-between mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800">

@@ -4,6 +4,9 @@ export interface SignalScores {
   gdp_per_capita: number
   nightlights: number
   mobility: number
+  building?: number
+  internet?: number
+  [key: string]: number | undefined
 }
 
 export interface HistoryPoint {
