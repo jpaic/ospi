@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 from sklearn.impute import KNNImputer
-from sklearn.linear_model import ElasticNetCV
+from sklearn.linear_model import RidgeCV
 from psycopg2.extras import execute_values
 
 from db.connection import get_conn
@@ -131,44 +131,34 @@ def _build_feature_matrix(rows: list[dict], return_regions: bool = False) -> tup
     return result
 
 
-def _fit_elasticnet(X: np.ndarray, y: np.ndarray) -> tuple:
-    model = ElasticNetCV(
-        l1_ratio=[0.1, 0.5, 0.7, 0.9, 0.95, 0.99, 1.0],
-        alphas=np.logspace(-4, 1, 20),
-        cv=5,
-        random_state=42,
-        max_iter=10000,
-        fit_intercept=True,
-    )
+def _fit_ridge(X: np.ndarray, y: np.ndarray) -> tuple:
+    model = RidgeCV(alphas=np.logspace(-4, 2, 30), cv=5, fit_intercept=True)
     model.fit(X, y)
-    return model.coef_, model.intercept_, model.alpha_, model.l1_ratio_
+    return model.coef_, model.intercept_, model.alpha_
 
 
 def _persist_model(conn, weights: dict, scaler_mean: list, scaler_scale: list,
-                   residuals: dict, region_coefs: dict | None = None,
-                   elasticnet_alpha: float | None = None,
-                   l1_ratio: float | None = None) -> int:
+                   residuals: dict, region_coefs: dict | None = None) -> int:
     import json
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO model_weights
                 (intercept, telecom, electricity, gdp_per_capita, nightlights, road_density,
-                 log_area_km2, signal_count, lambda, l1_ratio, elasticnet_alpha,
+                 log_area_km2, signal_count, lambda,
                  r_squared, cv_r_squared, n_training, scaler_mean, scaler_scale,
                  region_coefs, version)
             VALUES
                 (%(intercept)s, %(telecom)s, %(electricity)s, %(gdp_per_capita)s,
                  %(nightlights)s, %(road_density)s, %(log_area_km2)s, %(signal_count)s,
-                 %(lambda)s, %(l1_ratio)s, %(elasticnet_alpha)s,
+                 %(lambda)s,
                  %(r_squared)s, %(cv_r_squared)s, %(n_training)s,
                  %(scaler_mean)s, %(scaler_scale)s, %(region_coefs)s::jsonb,
                  'v3')
             RETURNING id
             """,
             {**weights, "scaler_mean": scaler_mean, "scaler_scale": scaler_scale,
-             "region_coefs": json.dumps(region_coefs or {}),
-             "elasticnet_alpha": elasticnet_alpha, "l1_ratio": l1_ratio},
+             "region_coefs": json.dumps(region_coefs or {})},
         )
         model_id = cur.fetchone()[0]
 
@@ -232,7 +222,7 @@ def run_training() -> dict:
         X_tr_s = scaler_fold.fit_transform(X_tr)
         X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold, _, _ = _fit_elasticnet(X_tr_s, y_tr)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr)
 
         y_pred = X_va_s @ w_fold + int_fold
         fold_mses.append(float(np.mean((y_va - y_pred) ** 2)))
@@ -246,7 +236,7 @@ def run_training() -> dict:
 
     scaler = StandardScaler()
     X = scaler.fit_transform(X_raw)
-    w_full, intercept_full, best_alpha, best_l1_ratio = _fit_elasticnet(X, y)
+    w_full, intercept_full, best_alpha = _fit_ridge(X, y)
 
     w_signal = w_full[:N_SIG]
     w_continent = w_full[N_SIG:]
@@ -261,7 +251,7 @@ def run_training() -> dict:
         X_tr_s = scaler_fold.fit_transform(X_tr)
         X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold, _, _ = _fit_elasticnet(X_tr_s, y_tr)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr)
         y_oof[val_idx] = X_va_s @ w_fold + int_fold
 
     residuals = {iso2: float(abs(y_oof[i] - y[i])) for i, iso2 in enumerate(iso2s)}
@@ -272,9 +262,8 @@ def run_training() -> dict:
     r_squared_insample = round(1.0 - ss_res / ss_tot, 4)
 
     coefs_scaled = dict(zip(ALL_FEATURE_KEYS, w_signal.tolist()))
-    log.info("[trainer] In-sample R²=%s  CV R²=%s  α=%s  l1_ratio=%s  |  signal coefs=%s  region coefs=%s",
-             r_squared_insample, best_cv_r2, best_alpha, best_l1_ratio,
-             coefs_scaled, region_coefs)
+    log.info("[trainer] In-sample R²=%s  CV R²=%s  α=%s  |  signal coefs=%s  region coefs=%s",
+             r_squared_insample, best_cv_r2, best_alpha, coefs_scaled, region_coefs)
 
     if best_cv_r2 < MIN_R2_THRESHOLD:
         log.warning("[trainer] CV R²=%s is below %.2f — model quality is low", best_cv_r2, MIN_R2_THRESHOLD)
@@ -283,24 +272,24 @@ def run_training() -> dict:
         **coefs_scaled,
         "intercept":      float(intercept_full),
         "lambda":         float(best_alpha),
-        "l1_ratio":       float(best_l1_ratio) if best_l1_ratio is not None else None,
-        "elasticnet_alpha": float(best_alpha),
         "r_squared":      r_squared_insample,
         "cv_r_squared":   best_cv_r2,
         "n_training":     len(filtered),
         "region_coefs":   region_coefs,
     }
 
+    # Only store scaler for the 7 signal features (exclude continent dummies)
+    scaler_mean_sig = scaler.mean_[:N_SIG].tolist()
+    scaler_scale_sig = scaler.scale_[:N_SIG].tolist()
+
     with get_conn() as conn:
         model_id = _persist_model(
             conn,
             weights_row,
-            scaler.mean_.tolist(),
-            scaler.scale_.tolist(),
+            scaler_mean_sig,
+            scaler_scale_sig,
             residuals,
             region_coefs,
-            elasticnet_alpha=float(best_alpha),
-            l1_ratio=float(best_l1_ratio) if best_l1_ratio is not None else None,
         )
 
     result = {
@@ -309,16 +298,14 @@ def run_training() -> dict:
         "cv_r_squared":  best_cv_r2,
         "n_training":    len(filtered),
         "lambda":        float(best_alpha),
-        "l1_ratio":      float(best_l1_ratio) if best_l1_ratio is not None else None,
-        "elasticnet_alpha": float(best_alpha),
         "coefficients":  coefs_scaled,
         "region_coefs":  region_coefs,
         "intercept":     float(intercept_full),
     }
 
     log.info(
-        "[trainer] ✓ Saved model_id=%s  R²=%s  CV_R²=%s  n=%s  α=%s  l1_ratio=%s  region_coefs=%s",
+        "[trainer] ✓ Saved model_id=%s  R²=%s  CV_R²=%s  n=%s  α=%s  region_coefs=%s",
         model_id, r_squared_insample, best_cv_r2, len(filtered),
-        best_alpha, best_l1_ratio, region_coefs,
+        best_alpha, region_coefs,
     )
     return result

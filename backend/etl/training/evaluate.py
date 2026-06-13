@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler
 
 from db.connection import get_conn
 from etl.training.constants import MIN_R2_THRESHOLD, MIN_TRAINING_COUNTRIES
-from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT, KEPT_CONTINENTS, _build_feature_matrix, _fit_elasticnet
+from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT, KEPT_CONTINENTS, _build_feature_matrix, _fit_ridge
 from etl.utils.signal_pivot import SIGNAL_KEYS, signal_coverage
 
 log = logging.getLogger(__name__)
@@ -137,7 +137,7 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
         X_tr_s = scaler_fold.fit_transform(X_tr)
         X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold, _, _ = _fit_elasticnet(X_tr_s, y_tr)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr)
 
         y_pred = X_va_s @ w_fold + int_fold
         mse = float(np.mean((y_va - y_pred) ** 2))

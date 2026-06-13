@@ -187,7 +187,11 @@ def _compute_estimate_v2(
         for i, k in enumerate(SIGNAL_KEYS)
     ]
     log_area    = _log_area_static(area_km2, log_area_fallback)
-    signal_count = len(available)
+    # Always use 5 (all signals available) at inference since missing
+    # signals are already filled with the training mean (via scaler_mean).
+    # signal_count's tiny std (0.16) in training makes it penalise
+    # countries with any missing signals disproportionately.
+    signal_count = 5
     raw_features = signal_vals + [log_area, signal_count]
 
     if scaler_mean and scaler_scale and len(scaler_mean) == len(raw_features):

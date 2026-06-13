@@ -130,7 +130,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="text-center text-[8px] text-zinc-300 dark:text-zinc-700 pb-4">
-        v3.0 · ElasticNet · UN WPP {ver?.etl_year ?? '—'} · 5 signals
+        v3.0 · Ridge · UN WPP {ver?.etl_year ?? '—'} · 5 signals
       </footer>
     </div>
   )
