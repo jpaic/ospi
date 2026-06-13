@@ -107,6 +107,7 @@ function OSPIInner() {
             hideTerritories={hideTerritories}
             onToggleTerritories={setHideTerritories}
             onClose={() => setSidebarOpen(false)}
+            visibleCountries={visibleCountries}
           />
         </div>
 

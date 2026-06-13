@@ -1,7 +1,7 @@
 import type { Country } from './types'
 
 export function calcDelta(c: Country): number {
-  return Math.round((c.ospi - c.official) / c.official * 100)
+  return ((c.ospi - c.official) / c.official) * 100
 }
 
 export function deltaStr(c: Country): string {
@@ -36,8 +36,7 @@ export function globalStats(countries: Country[]) {
   const totalOspi     = countries.reduce((s, c) => s + c.ospi, 0)
   const highConf      = countries.filter(c => c.conf === 'high').length
   const lowConf       = countries.filter(c => c.conf === 'low').length
-  const avgDivergence = Math.round(
+  const avgDivergence =
     countries.reduce((s, c) => s + Math.abs(calcDelta(c)), 0) / countries.length
-  )
   return { totalOfficial, totalOspi, highConf, lowConf, avgDivergence }
 }

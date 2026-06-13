@@ -18,6 +18,7 @@ interface Props {
   hideTerritories?: boolean
   onToggleTerritories?: (v: boolean) => void
   onClose?: () => void
+  visibleCountries?: Country[]
 }
 
 function deltaStr(c: Country): string {
@@ -34,11 +35,12 @@ function ConfDot({ conf }: { conf: Country['conf'] }) {
   )
 }
 
-export default function Sidebar({ countries, selected, onSelect, query, onSearch, hideTerritories, onToggleTerritories, onClose }: Props) {
+export default function Sidebar({ countries, selected, onSelect, query, onSearch, hideTerritories, onToggleTerritories, onClose, visibleCountries }: Props) {
   const [expandedRegions, setExpandedRegions] = useState<string | null>(null)
   const allCountries = useCountries()
   const { noSignals } = useDataSource()
-  const stats = globalStats(allCountries)
+  const statsCountries = visibleCountries ?? allCountries
+  const stats = globalStats(statsCountries)
 
   const toggleRegions = (name: string) =>
     setExpandedRegions(prev => (prev === name ? null : name))
@@ -70,7 +72,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
             { label: 'Official total', value: fmtB(stats.totalOfficial / 1000) },
             { label: 'OSPI total', value: fmtB(stats.totalOspi / 1000) },
             { label: 'Avg divergence', value: `±${stats.avgDivergence.toFixed(2)}%` },
-            { label: 'Countries', value: String(allCountries.length) },
+            { label: 'Countries', value: String(statsCountries.length) },
           ].map(s => (
             <div key={s.label} className="bg-zinc-50 dark:bg-zinc-900 rounded px-2 py-1.5">
               <p className="text-[9px] text-zinc-400 uppercase tracking-wider">{s.label}</p>
@@ -83,17 +85,17 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
         <div className="mb-2">
           <div className="flex justify-between text-[9px] text-zinc-400 mb-1">
             <span>Confidence breakdown</span>
-            <span>{allCountries.length} countries</span>
+            <span>{statsCountries.length} countries</span>
           </div>
           <div className="flex h-1.5 rounded-full overflow-hidden gap-px">
-            <div className="h-full bg-emerald-500" style={{ width: `${(stats.highConf / allCountries.length) * 100}%` }} />
-            <div className="h-full bg-amber-400" style={{ width: `${((allCountries.length - stats.highConf - stats.lowConf) / allCountries.length) * 100}%` }} />
-            <div className="h-full bg-red-500" style={{ width: `${(stats.lowConf / allCountries.length) * 100}%` }} />
+            <div className="h-full bg-emerald-500" style={{ width: `${(stats.highConf / statsCountries.length) * 100}%` }} />
+            <div className="h-full bg-amber-400" style={{ width: `${((statsCountries.length - stats.highConf - stats.lowConf) / statsCountries.length) * 100}%` }} />
+            <div className="h-full bg-red-500" style={{ width: `${(stats.lowConf / statsCountries.length) * 100}%` }} />
           </div>
           <div className="flex gap-3 mt-1">
             {[
               { label: `High ${stats.highConf}`, col: 'text-emerald-500' },
-              { label: `Med ${allCountries.length - stats.highConf - stats.lowConf}`, col: 'text-amber-500' },
+              { label: `Med ${statsCountries.length - stats.highConf - stats.lowConf}`, col: 'text-amber-500' },
               { label: `Low ${stats.lowConf}`, col: 'text-red-500' },
             ].map(b => (
               <span key={b.label} className={`text-[9px] font-medium ${b.col}`}>{b.label}</span>
