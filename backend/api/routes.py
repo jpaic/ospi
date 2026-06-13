@@ -167,7 +167,7 @@ def get_latest_model_info() -> dict | None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM model_weights WHERE version = 'v2' ORDER BY trained_at DESC LIMIT 1"
+                "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
             )
             row = cur.fetchone()
             if not row:

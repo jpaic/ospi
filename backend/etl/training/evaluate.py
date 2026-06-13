@@ -185,7 +185,7 @@ def compute_feature_importance(model_id: int | None = None) -> dict:
             if model_id:
                 cur.execute("SELECT * FROM model_weights WHERE id = %s", (model_id,))
             else:
-                cur.execute("SELECT * FROM model_weights WHERE version = 'v2' ORDER BY trained_at DESC LIMIT 1")
+                cur.execute("SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1")
             row = cur.fetchone()
             if not row:
                 return {}

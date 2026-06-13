@@ -60,7 +60,7 @@ def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM model_weights WHERE version = 'v2' ORDER BY trained_at DESC LIMIT 1"
+            "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
         )
         row = cur.fetchone()
         if not row:
