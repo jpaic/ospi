@@ -339,7 +339,7 @@ def _build_details(model_id: int) -> dict:
             "intercept": model.get("intercept"),
             "coefficients": {
                 k: model.get(k)
-                for k in ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility", "log_area_km2", "signal_count"]
+                for k in ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility", "log_area_km2"]
             },
             "region_coefs": model.get("region_coefs"),
         },

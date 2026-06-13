@@ -13,7 +13,7 @@ from etl.utils.signal_pivot import SIGNAL_KEYS, signal_coverage
 
 log = logging.getLogger(__name__)
 
-ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2", "signal_count"]
+ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2"]
 
 UN_REGION_TO_CONTINENT = {
     "Eastern Africa": "Africa", "Middle Africa": "Africa",
@@ -115,15 +115,13 @@ def _build_feature_matrix(rows: list[dict], return_regions: bool = False) -> tup
     signal_arr = np.array(signal_vals, dtype=float)
     log_area_arr = np.array(log_areas, dtype=float)
 
-    signal_count = np.sum(~np.isnan(signal_arr), axis=1)
-
     log_area_mean = float(np.nanmean(log_area_arr)) if np.any(~np.isnan(log_area_arr)) else 0.0
     log_area_arr = np.where(np.isnan(log_area_arr), log_area_mean, log_area_arr)
 
     imputer = KNNImputer(n_neighbors=5, weights='distance')
     signal_arr_imp = imputer.fit_transform(signal_arr)
 
-    X_rows = np.column_stack([signal_arr_imp, log_area_arr, signal_count])
+    X_rows = np.column_stack([signal_arr_imp, log_area_arr])
 
     result: tuple = (X_rows, iso2s)
     if return_regions:
@@ -131,7 +129,14 @@ def _build_feature_matrix(rows: list[dict], return_regions: bool = False) -> tup
     return result
 
 
-def _fit_ridge(X: np.ndarray, y: np.ndarray) -> tuple:
+def _fit_ridge(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> tuple:
+    if sample_weight is not None:
+        from sklearn.linear_model import Ridge
+        from sklearn.model_selection import GridSearchCV
+        alphas = np.logspace(-4, 2, 30)
+        gs = GridSearchCV(Ridge(fit_intercept=True), {'alpha': alphas}, cv=5, scoring='neg_mean_squared_error')
+        gs.fit(X, y, sample_weight=sample_weight)
+        return gs.best_estimator_.coef_, gs.best_estimator_.intercept_, gs.best_estimator_.alpha
     model = RidgeCV(alphas=np.logspace(-4, 2, 30), cv=5, fit_intercept=True)
     model.fit(X, y)
     return model.coef_, model.intercept_, model.alpha_
@@ -185,9 +190,9 @@ def run_training() -> dict:
 
     log.info("[trainer] Loaded %d countries with source_confidence='high'", len(rows))
 
-    filtered = [r for r in rows if signal_coverage(r) >= 0.4]
+    filtered = [r for r in rows if signal_coverage(r) >= 0.2]
     dropped = len(rows) - len(filtered)
-    log.info("[trainer] %d pass coverage ≥ 0.4 filter (%d dropped)", len(filtered), dropped)
+    log.info("[trainer] %d pass coverage >= 0.2 filter (%d dropped)", len(filtered), dropped)
 
     if len(filtered) < MIN_TRAINING_COUNTRIES:
         raise RuntimeError(
@@ -197,6 +202,9 @@ def run_training() -> dict:
 
     X_raw_sig, iso2s, regions = _build_feature_matrix(filtered, return_regions=True)
     y = np.array([math.log(float(r["population"])) for r in filtered])
+    # Population-weighted training so large countries contribute more to the loss
+    pops = np.array([float(r["population"]) for r in filtered])
+    sample_weight = pops / np.mean(pops)
     N_SIG = len(ALL_FEATURE_KEYS)
 
     continents = np.array([UN_REGION_TO_CONTINENT.get(r, "") for r in regions])
@@ -222,7 +230,7 @@ def run_training() -> dict:
         X_tr_s = scaler_fold.fit_transform(X_tr)
         X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr, sample_weight[train_idx])
 
         y_pred = X_va_s @ w_fold + int_fold
         fold_mses.append(float(np.mean((y_va - y_pred) ** 2)))
@@ -236,7 +244,7 @@ def run_training() -> dict:
 
     scaler = StandardScaler()
     X = scaler.fit_transform(X_raw)
-    w_full, intercept_full, best_alpha = _fit_ridge(X, y)
+    w_full, intercept_full, best_alpha = _fit_ridge(X, y, sample_weight)
 
     w_signal = w_full[:N_SIG]
     w_continent = w_full[N_SIG:]
@@ -251,7 +259,7 @@ def run_training() -> dict:
         X_tr_s = scaler_fold.fit_transform(X_tr)
         X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr, sample_weight[train_idx])
         y_oof[val_idx] = X_va_s @ w_fold + int_fold
 
     residuals = {iso2: float(abs(y_oof[i] - y[i])) for i, iso2 in enumerate(iso2s)}
@@ -271,6 +279,7 @@ def run_training() -> dict:
     weights_row = {
         **coefs_scaled,
         "intercept":      float(intercept_full),
+        "signal_count":   0.0,
         "lambda":         float(best_alpha),
         "r_squared":      r_squared_insample,
         "cv_r_squared":   best_cv_r2,
@@ -278,7 +287,7 @@ def run_training() -> dict:
         "region_coefs":   region_coefs,
     }
 
-    # Only store scaler for the 7 signal features (exclude continent dummies)
+    # Only store scaler for the signal features (exclude continent dummies)
     scaler_mean_sig = scaler.mean_[:N_SIG].tolist()
     scaler_scale_sig = scaler.scale_[:N_SIG].tolist()
 
