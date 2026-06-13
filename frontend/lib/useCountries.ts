@@ -75,11 +75,11 @@ function normalizeSignals(
   signals: Partial<Record<keyof SignalScores, number | null>> | undefined,
 ): SignalScores {
   return {
-    telecom:     normalizeSignal(signals?.telecom),
-    electricity: normalizeSignal(signals?.electricity),
-    building:    normalizeSignal(signals?.building),
-    mobility:    normalizeSignal(signals?.mobility),
-    internet:    normalizeSignal(signals?.internet),
+    telecom:        normalizeSignal(signals?.telecom),
+    electricity:    normalizeSignal(signals?.electricity),
+    gdp_per_capita: normalizeSignal(signals?.gdp_per_capita),
+    nightlights:    normalizeSignal(signals?.nightlights),
+    road_density:   normalizeSignal(signals?.road_density),
   }
 }
 

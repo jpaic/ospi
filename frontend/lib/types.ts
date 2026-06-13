@@ -1,9 +1,9 @@
 export interface SignalScores {
   telecom: number
   electricity: number
-  building: number
-  mobility: number
-  internet: number
+  gdp_per_capita: number
+  nightlights: number
+  road_density: number
 }
 
 export interface HistoryPoint {

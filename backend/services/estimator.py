@@ -31,16 +31,16 @@ from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT
 
 logger = logging.getLogger(__name__)
 
-SIGNAL_KEYS = ["telecom", "electricity", "building", "mobility", "internet"]
+SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "road_density"]
 
 # ── v1 fallback constants (used only when model_weights is empty) ─────────────
 
 _V1_WEIGHTS = {
-    "telecom":     0.25,
-    "electricity": 0.25,
-    "building":    0.20,
-    "mobility":    0.15,
-    "internet":    0.15,
+    "telecom":        0.25,
+    "electricity":    0.25,
+    "gdp_per_capita": 0.20,
+    "nightlights":    0.15,
+    "road_density":   0.15,
 }
 
 
@@ -60,7 +60,7 @@ def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
+            "SELECT * FROM model_weights WHERE version = 'v3' ORDER BY trained_at DESC LIMIT 1"
         )
         row = cur.fetchone()
         if not row:
@@ -103,6 +103,22 @@ def _scale_features(raw: list[float], scaler_mean: list[float], scaler_scale: li
         (raw[i] - scaler_mean[i]) / scaler_scale[i]
         for i in range(len(raw))
     ]
+
+
+# ── normalisation helpers ─────────────────────────────────────────────────────
+
+GDP_MIN = 100
+GDP_MAX = 200_000
+
+
+def _normalise_gdp(gdp_raw: float | None) -> float | None:
+    if gdp_raw is None or gdp_raw <= 0:
+        return None
+    safe = max(min(gdp_raw, GDP_MAX), GDP_MIN)
+    log_val = math.log(safe)
+    log_min = math.log(GDP_MIN)
+    log_max = math.log(GDP_MAX)
+    return round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
 
 
 # ── log_area helper ───────────────────────────────────────────────────────────
@@ -305,6 +321,19 @@ def get_region_bulk(iso2_list: list[str]) -> dict[str, str | None]:
             return {r[0]: r[1] for r in cur.fetchall()}
 
 
+def get_gdp_bulk(iso2_list: list[str]) -> dict[str, float | None]:
+    """Fetch GDP per capita from country_metadata."""
+    if not iso2_list:
+        return {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, gdp_per_capita FROM country_metadata WHERE iso2 = ANY(%s)",
+                (iso2_list,),
+            )
+            return {r[0]: float(r[1]) if r[1] is not None else None for r in cur.fetchall()}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
@@ -317,6 +346,14 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
     signals_map   = get_signals_bulk(iso2_list)
     area_map      = get_area_bulk(iso2_list)
     region_map    = get_region_bulk(iso2_list)
+    gdp_map       = get_gdp_bulk(iso2_list)
+
+    # Inject gdp_per_capita into signals (log-normalised)
+    for iso2 in iso2_list:
+        gdp_raw = gdp_map.get(iso2)
+        gdp_norm = _normalise_gdp(gdp_raw)
+        if gdp_norm is not None:
+            signals_map.setdefault(iso2, {})["gdp_per_capita"] = gdp_norm
 
     with get_conn() as conn:
         model, residuals = _load_model_and_residuals(conn)
@@ -392,16 +429,26 @@ def _estimate_history_v2(
         sig_rows = cur.fetchall()
 
         cur.execute(
-            "SELECT iso2, area_km2, region FROM country_metadata WHERE iso2 = ANY(%s)",
+            "SELECT iso2, area_km2, region, gdp_per_capita FROM country_metadata WHERE iso2 = ANY(%s)",
             (iso2_list,),
         )
-        metadata = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        metadata = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
 
     sig_by_country_year: dict[str, dict[int, dict]] = {}
     for iso2, signal_type, year, score in sig_rows:
         sig_by_country_year.setdefault(iso2, {}).setdefault(year, {})[signal_type] = (
             float(score) if score is not None else None
         )
+
+    # Inject gdp_per_capita into signals for each country (same for all years)
+    for iso2 in iso2_list:
+        meta = metadata.get(iso2)
+        if meta:
+            _, _, gdp_raw = meta
+            gdp_norm = _normalise_gdp(gdp_raw)
+            if gdp_norm is not None:
+                for year_sigs in sig_by_country_year.get(iso2, {}).values():
+                    year_sigs["gdp_per_capita"] = gdp_norm
 
     results: dict[str, list[dict]] = {iso2: [] for iso2 in iso2_list}
 
@@ -415,7 +462,7 @@ def _estimate_history_v2(
         if signals is None:
             signals = {}
 
-        area, region = metadata.get(iso2, (None, None))
+        area, region, _ = metadata.get(iso2, (None, None, None))
         est = _compute_estimate_v2(signals, model, residuals, iso2,
                                     float(population), area, region)
         results.setdefault(iso2, []).append({
@@ -434,9 +481,9 @@ def _estimate_history_v1(iso2_list: list[str], conn) -> dict[str, list[dict]]:
                 VALUES
                     ('telecom', 0.25::numeric),
                     ('electricity', 0.25::numeric),
-                    ('building', 0.20::numeric),
-                    ('mobility', 0.15::numeric),
-                    ('internet', 0.15::numeric)
+                    ('gdp_per_capita', 0.20::numeric),
+                    ('nightlights', 0.15::numeric),
+                    ('road_density', 0.15::numeric)
             ),
             yearly AS (
                 SELECT

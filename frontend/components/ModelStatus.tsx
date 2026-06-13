@@ -15,9 +15,9 @@ interface ModelStatus {
     intercept:   number | null
     telecom:     number | null
     electricity: number | null
-    building:    number | null
-    mobility:    number | null
-    internet:    number | null
+    gdp_per_capita: number | null
+    nightlights:    number | null
+    road_density:   number | null
   }
 }
 
@@ -31,11 +31,11 @@ interface Props {
 }
 
 const SIGNAL_COLORS: Record<string, string> = {
-  telecom:     '#1D9E75',
-  electricity: '#EF9F27',
-  building:    '#3B82F6',
-  mobility:    '#A855F7',
-  internet:    '#E24B4A',
+  telecom:        '#1D9E75',
+  electricity:    '#EF9F27',
+  gdp_per_capita: '#8B5CF6',
+  nightlights:    '#FBBF24',
+  road_density:   '#EC4899',
 }
 
 function CoefBar({ name, value }: { name: string; value: number | null }) {
@@ -260,7 +260,7 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
               <p className="text-[8px] uppercase tracking-wider text-zinc-400 mb-1.5">
                 Signal coefficients
               </p>
-              {(['telecom', 'electricity', 'building', 'mobility', 'internet'] as const).map(k => (
+              {(['telecom', 'electricity', 'gdp_per_capita', 'nightlights', 'road_density'] as const).map(k => (
                 <CoefBar key={k} name={k} value={s.coefficients![k]} />
               ))}
               <div className="flex justify-between mt-2 pt-1.5 border-t border-zinc-100 dark:border-zinc-800">

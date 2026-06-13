@@ -5,6 +5,9 @@ from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
+from pathlib import Path
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from services.estimator import (
     estimate_population,
@@ -14,15 +17,14 @@ from services.estimator import (
 from db.connection import get_conn
 from services.cache import get_cache
 
-load_dotenv()
-
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OSPI API", version="2.0.0")
 
+_allowed_origins = (os.getenv("ALLOWED_ORIGINS") or "http://localhost:3000,http://127.0.0.1:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -152,13 +154,13 @@ def calc_growth_rate(history: list[dict]) -> float:
 
 
 def build_signals(signals: dict) -> dict:
-    """Normalise signal dict to a standard shape (telecom, electricity, etc.)."""
+    """Normalise signal dict to a standard shape."""
     return {
-        "telecom":     signals.get("telecom"),
-        "electricity": signals.get("electricity"),
-        "building":    signals.get("building"),
-        "mobility":    signals.get("mobility"),
-        "internet":    signals.get("internet"),
+        "telecom":        signals.get("telecom"),
+        "electricity":    signals.get("electricity"),
+        "gdp_per_capita": signals.get("gdp_per_capita"),
+        "nightlights":    signals.get("nightlights"),
+        "road_density":   signals.get("road_density"),
     }
 
 
@@ -167,7 +169,7 @@ def get_latest_model_info() -> dict | None:
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
+                "SELECT * FROM model_weights WHERE version = 'v3' ORDER BY trained_at DESC LIMIT 1"
             )
             row = cur.fetchone()
             if not row:
@@ -302,7 +304,7 @@ def _build_details(model_id: int) -> dict:
             "intercept": model.get("intercept"),
             "coefficients": {
                 k: model.get(k)
-                for k in ["telecom", "electricity", "building", "mobility", "internet", "log_area_km2", "signal_count"]
+                for k in ["telecom", "electricity", "gdp_per_capita", "nightlights", "road_density", "log_area_km2", "signal_count"]
             },
             "region_coefs": model.get("region_coefs"),
         },
@@ -459,12 +461,12 @@ def model_status():
         "n_training": model.get("n_training"),
         "lambda":     model.get("lambda"),
         "coefficients": {
-            "intercept":   model.get("intercept"),
-            "telecom":     model.get("telecom"),
-            "electricity": model.get("electricity"),
-            "building":    model.get("building"),
-            "mobility":    model.get("mobility"),
-            "internet":    model.get("internet"),
+            "intercept":      model.get("intercept"),
+            "telecom":        model.get("telecom"),
+            "electricity":    model.get("electricity"),
+            "gdp_per_capita": model.get("gdp_per_capita"),
+            "nightlights":    model.get("nightlights"),
+            "road_density":   model.get("road_density"),
         },
         "mode": "v2_regression",
     }

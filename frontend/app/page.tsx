@@ -102,7 +102,7 @@ export default function LandingPage() {
 
         {/* ── Description ── */}
         <p className="lp-fade text-[9px] text-zinc-300 dark:text-zinc-700 leading-relaxed text-center max-w-xs sm:max-w-sm mb-8">
-          Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, building, mobility, and internet signals.
+          Estimates population where traditional data is sparse, using satellite-derived mobile coverage, electricity, GDP per capita, nightlights, and road density signals.
         </p>
 
         {/* ── Nav buttons ── */}
@@ -130,7 +130,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="text-center text-[8px] text-zinc-300 dark:text-zinc-700 pb-4">
-        v2.0 · Ridge regression · UN WPP {ver?.etl_year ?? '—'} · 5 signals
+        v3.0 · ElasticNet · UN WPP {ver?.etl_year ?? '—'} · 5 signals
       </footer>
     </div>
   )

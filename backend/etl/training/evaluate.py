@@ -26,7 +26,7 @@ from sklearn.preprocessing import StandardScaler
 
 from db.connection import get_conn
 from etl.training.constants import MIN_R2_THRESHOLD, MIN_TRAINING_COUNTRIES
-from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT, KEPT_CONTINENTS, _build_feature_matrix, _fit_ridge_per_feature, SIGNAL_FEATURE_ALPHAS, CONTINENT_ALPHA
+from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT, KEPT_CONTINENTS, _build_feature_matrix, _fit_elasticnet
 from etl.utils.signal_pivot import SIGNAL_KEYS, signal_coverage
 
 log = logging.getLogger(__name__)
@@ -61,15 +61,15 @@ def load_all_training_data() -> list[dict]:
                         lp.source_confidence,
                         cm.area_km2,
                         cm.region,
-                        MAX(CASE WHEN ls.signal_type = 'telecom'     THEN ls.score END) AS telecom,
-                        MAX(CASE WHEN ls.signal_type = 'electricity' THEN ls.score END) AS electricity,
-                        MAX(CASE WHEN ls.signal_type = 'building'    THEN ls.score END) AS building,
-                        MAX(CASE WHEN ls.signal_type = 'mobility'    THEN ls.score END) AS mobility,
-                        MAX(CASE WHEN ls.signal_type = 'internet'    THEN ls.score END) AS internet
+                        cm.gdp_per_capita,
+                        MAX(CASE WHEN ls.signal_type = 'telecom'      THEN ls.score END) AS telecom,
+                        MAX(CASE WHEN ls.signal_type = 'electricity'  THEN ls.score END) AS electricity,
+                        MAX(CASE WHEN ls.signal_type = 'nightlights'  THEN ls.score END) AS nightlights,
+                        MAX(CASE WHEN ls.signal_type = 'road_density' THEN ls.score END) AS road_density
                     FROM latest_pop lp
                     LEFT JOIN latest_signals ls ON ls.iso2 = lp.iso2
                     LEFT JOIN country_metadata cm ON cm.iso2 = lp.iso2
-                    GROUP BY lp.iso2, lp.population, lp.source_confidence, cm.area_km2, cm.region
+                    GROUP BY lp.iso2, lp.population, lp.source_confidence, cm.area_km2, cm.region, cm.gdp_per_capita
                 )
                 SELECT * FROM pivoted
                 WHERE population IS NOT NULL AND population > 0
@@ -105,9 +105,8 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
     Runs k-fold cross-validation on the full dataset (all source_confidence
     levels) and returns fold-level RMSE and R² in log space.
 
-    Uses per-feature Ridge (same methodology as trainer): log_area_km2
-    gets a near-zero penalty; signal features share a common α selected
-    by the same 5-fold CV.  Scaler is re-fit inside each fold.
+    Uses ElasticNet (same methodology as trainer): cross-validated L1+L2
+    regularisation with kNN imputation.  Scaler is re-fit inside each fold.
     """
     log.info("[evaluate] Loading all training data for CV diagnostics...")
     rows = load_all_training_data()
@@ -116,7 +115,6 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
 
     X_raw_sig, _, regions = _build_feature_matrix(filtered, return_regions=True)
     y = np.array([math.log(float(r["population"])) for r in filtered])
-    N_SIG = len(ALL_FEATURE_KEYS)
 
     continents = np.array([UN_REGION_TO_CONTINENT.get(r, "") for r in regions])
     dummies = np.zeros((len(continents), len(KEPT_CONTINENTS)))
@@ -124,14 +122,11 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
         if cont in KEPT_CONTINENTS:
             dummies[i, KEPT_CONTINENTS.index(cont)] = 1.0
     X_raw = np.hstack([X_raw_sig, dummies])
-    N_CONT = len(KEPT_CONTINENTS)
 
-    PER_FEATURE_ALPHAS = np.array(SIGNAL_FEATURE_ALPHAS + [CONTINENT_ALPHA] * N_CONT)
     cv = KFold(n_splits=n_splits, shuffle=True, random_state=42)
 
-    log.info("[evaluate] Running %d-fold CV with continent features...", n_splits)
+    log.info("[evaluate] Running %d-fold CV with ElasticNet + continent features...", n_splits)
 
-    # --- CV loop matching trainer methodology ---
     all_fold_r2s = []
     all_fold_rmses = []
     for train_idx, val_idx in cv.split(X_raw):
@@ -139,12 +134,10 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
         y_tr, y_va = y[train_idx], y[val_idx]
 
         scaler_fold = StandardScaler()
-        X_tr_sig_s = scaler_fold.fit_transform(X_tr[:, :N_SIG])
-        X_va_sig_s = scaler_fold.transform(X_va[:, :N_SIG])
-        X_tr_s = np.hstack([X_tr_sig_s, X_tr[:, N_SIG:]])
-        X_va_s = np.hstack([X_va_sig_s, X_va[:, N_SIG:]])
+        X_tr_s = scaler_fold.fit_transform(X_tr)
+        X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold = _fit_ridge_per_feature(X_tr_s, y_tr, PER_FEATURE_ALPHAS)
+        w_fold, int_fold, _, _ = _fit_elasticnet(X_tr_s, y_tr)
 
         y_pred = X_va_s @ w_fold + int_fold
         mse = float(np.mean((y_va - y_pred) ** 2))
@@ -156,8 +149,8 @@ def run_cross_val_diagnostics(n_splits: int = 5) -> dict:
 
     r2_scores = np.array(all_fold_r2s)
     rmse_scores = np.array(all_fold_rmses)
-    log.info("[evaluate] CV R²=%.4f±%.4f  RMSE=%.4f±%.4f  (per-feature α=%s)",
-             r2_scores.mean(), r2_scores.std(), rmse_scores.mean(), rmse_scores.std(), list(PER_FEATURE_ALPHAS))
+    log.info("[evaluate] CV R²=%.4f±%.4f  RMSE=%.4f±%.4f",
+             r2_scores.mean(), r2_scores.std(), rmse_scores.mean(), rmse_scores.std())
 
     return {
         "n_countries":  len(filtered),
@@ -185,7 +178,7 @@ def compute_feature_importance(model_id: int | None = None) -> dict:
             if model_id:
                 cur.execute("SELECT * FROM model_weights WHERE id = %s", (model_id,))
             else:
-                cur.execute("SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1")
+                cur.execute("SELECT * FROM model_weights WHERE version = 'v3' ORDER BY trained_at DESC LIMIT 1")
             row = cur.fetchone()
             if not row:
                 return {}

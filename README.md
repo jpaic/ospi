@@ -125,7 +125,7 @@ Countries with gaps in signal coverage impute missing features using the trainin
 
 **Signal availability varies by year.** Electricity and road density data tend to lag 1–2 years. Countries with fewer than two available signals fall back to a lower confidence tier.
 
-**Nighttime lights, GDP per capita, and road density are not yet implemented.** These signals are planned for the v3 release but require new ETL pipelines and schema changes. The model currently runs on telecom and electricity only.
+**Nighttime lights, GDP per capita, and road density were implemented in v3.** All five signals are now live with dedicated ETL pipelines.
 
 **6 countries have no land-area data** from the World Bank (VG, TW, GI, KP, MK, XK). Their `log(area)` falls back to the training-set mean, which reduces prediction accuracy for microstates such as Gibraltar.
 
@@ -139,6 +139,33 @@ Countries with gaps in signal coverage impute missing features using the trainin
 - **ETL:** World Bank API (WDI), UN Data Portal API
 - **Frontend:** Next.js, TypeScript, Chart.js, D3, Tailwind CSS
 - **Deployment:** Vercel (frontend + backend serverless)
+
+---
+
+## Changelog
+
+### v3 (2025)
+
+- **Replaced signals:** building → gdp_per_capita, mobility → nightlights, internet → road_density
+- **ElasticNet:** replaced per-feature Ridge with ElasticNetCV (cross-validated L1+L2)
+- **kNN imputation:** missing signals during training imputed via KNNImputer (k=5, distance-weighted)
+- **StandardScaler on all features:** continent dummies now scaled alongside signals
+- **New ETL pipelines:** `nightlights.py` (CO₂ proxy), `road_density.py` (World Bank IS.ROD.DNST.K2)
+- **GDP per capita:** fetched by `metadata.py`, log-normalised into [0, 100] score
+- **Backend schema:** `model_weights` stores `elasticnet_alpha` and `l1_ratio`
+- **Frontend:** signal colors/labels updated for new signals
+
+### v2 (2024)
+
+- Ridge regression with per-feature penalisation
+- StandardScaler + log_area_km2 feature
+- Continent-level adjustments via region_coefs
+- Out-of-fold residuals and cv_r_squared
+
+### v1 (2024)
+
+- Initial release: correction-factor fallback model
+- Five original signals: telecom, electricity, building, mobility, internet
 
 ---
 

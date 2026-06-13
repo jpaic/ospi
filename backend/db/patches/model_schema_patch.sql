@@ -1,6 +1,8 @@
 -- model_schema_patch.sql
 -- Run once against the live DB to add model persistence tables.
 -- Idempotent: uses IF NOT EXISTS / ADD COLUMN IF NOT EXISTS.
+-- NOTE: this is additive only — never DROP old columns — so both
+-- main (v2) and develop (v3) branches work against the same DB.
 
 -- ── Core tables ────────────────────────────────────────────────────────────────
 
@@ -41,17 +43,12 @@ END $$;
 -- ── v2 additions ───────────────────────────────────────────────────────────────
 
 ALTER TABLE model_weights
-    ADD COLUMN IF NOT EXISTS log_area_km2  FLOAT,
-    ADD COLUMN IF NOT EXISTS cv_r_squared  FLOAT
-        CHECK (cv_r_squared BETWEEN -1.0 AND 1.0),
-    ADD COLUMN IF NOT EXISTS scaler_mean   FLOAT[],
-    ADD COLUMN IF NOT EXISTS scaler_scale  FLOAT[];
+    ADD COLUMN IF NOT EXISTS l1_ratio         FLOAT,
+    ADD COLUMN IF NOT EXISTS elasticnet_alpha FLOAT;
 
 ALTER TABLE model_weights
-    DROP CONSTRAINT IF EXISTS model_weights_r_squared_check,
-    ADD CONSTRAINT model_weights_r_squared_check
-        CHECK (r_squared BETWEEN -1.0 AND 1.0);
+    ADD COLUMN IF NOT EXISTS version TEXT;
 
-ALTER TABLE model_weights
-    ADD COLUMN IF NOT EXISTS region_coefs JSONB,
-    ADD COLUMN IF NOT EXISTS signal_count FLOAT;
+-- Backfill: models with elasticnet_alpha are v3, all others are v2
+UPDATE model_weights SET version = 'v3' WHERE version IS NULL AND elasticnet_alpha IS NOT NULL;
+UPDATE model_weights SET version = 'v2' WHERE version IS NULL;

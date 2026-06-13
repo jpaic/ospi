@@ -62,19 +62,22 @@ ON signals (iso2, year, signal_type);
 -- ── ML model persistence ──────────────────────────────────────────────────────
 
 CREATE TABLE IF NOT EXISTS model_weights (
-    id           SERIAL PRIMARY KEY,
-    trained_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    intercept    FLOAT NOT NULL,
-    telecom      FLOAT NOT NULL DEFAULT 0,
-    electricity  FLOAT NOT NULL DEFAULT 0,
-    building     FLOAT NOT NULL DEFAULT 0,
-    mobility     FLOAT NOT NULL DEFAULT 0,
-    internet     FLOAT NOT NULL DEFAULT 0,
-    signal_count FLOAT NOT NULL DEFAULT 0,
-    lambda       FLOAT NOT NULL,          -- regularisation strength used
-    r_squared    FLOAT,                   -- goodness of fit on training set
-    n_training   INT,                     -- number of countries used
-    region_coefs JSONB                   -- continent-level bias adjustments
+    id                SERIAL PRIMARY KEY,
+    trained_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    intercept         FLOAT NOT NULL,
+    telecom           FLOAT NOT NULL DEFAULT 0,
+    electricity       FLOAT NOT NULL DEFAULT 0,
+    gdp_per_capita    FLOAT NOT NULL DEFAULT 0,
+    nightlights       FLOAT NOT NULL DEFAULT 0,
+    road_density      FLOAT NOT NULL DEFAULT 0,
+    signal_count      FLOAT NOT NULL DEFAULT 0,
+    lambda            FLOAT NOT NULL,          -- regularisation strength used
+    l1_ratio          FLOAT,                   -- ElasticNet L1 mix ratio
+    elasticnet_alpha  FLOAT,                   -- ElasticNet best alpha
+    r_squared         FLOAT,                   -- goodness of fit on training set
+    n_training        INT,                     -- number of countries used
+    region_coefs      JSONB,                   -- continent-level bias adjustments
+    version           TEXT                     -- 'v2' (Ridge) or 'v3' (ElasticNet)
 );
 
 CREATE TABLE IF NOT EXISTS model_residuals (
