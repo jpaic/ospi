@@ -5,23 +5,23 @@ import { fmt, fmtPct } from '@/lib/fmt'
 import type { ScatterPoint, Histogram } from './types'
 
 const SIGNAL_COLORS: Record<string, string> = {
-  telecom:     '#1D9E75',
-  electricity: '#EF9F27',
-  building:    '#3B82F6',
-  mobility:    '#A855F7',
-  internet:    '#E24B4A',
-  log_area_km2: '#06B6D4',
-  signal_count: '#F97316',
+  telecom:        '#1D9E75',
+  electricity:    '#EF9F27',
+  gdp_per_capita: '#8B5CF6',
+  nightlights:    '#FBBF24',
+  mobility:       '#EC4899',
+  log_area_km2:   '#06B6D4',
+  signal_count:   '#F97316',
 }
 
 const SIGNAL_LABELS: Record<string, string> = {
-  telecom:     'Telecom',
-  electricity: 'Electricity',
-  building:    'Building',
-  mobility:    'Mobility',
-  internet:    'Internet',
-  log_area_km2: 'Log Area',
-  signal_count: 'Signal Count',
+  telecom:        'Telecom',
+  electricity:    'Electricity',
+  gdp_per_capita: 'GDP pc',
+  nightlights:    'Nightlights',
+  mobility:       'Mobility',
+  log_area_km2:   'Log Area',
+  signal_count:   'Signal Count',
 }
 
 export function ScatterPlot({ data }: { data: ScatterPoint[] }) {

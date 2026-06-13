@@ -1,29 +1,10 @@
-"""
-trainer.py
-Fits a ridge regression on (signals → log population) and persists
-weights + per-country residuals to the DB.
-
-Usage:
-    from etl.training.trainer import run_training
-    result = run_training()
-    # {"model_id": 1, "r_squared": 0.91, "n_training": 52, "lambda": 0.1, ...}
-
-Changes vs v1:
-  - StandardScaler applied to X before fitting; scaler params persisted to DB
-    so estimator.py can reproduce the exact same transform at inference time.
-  - log(area_km2) added as a size-anchor feature so microstates (high signal
-    density, tiny population) are distinguishable from large dense countries.
-  - Residuals are now out-of-fold (CV) rather than in-sample, so they reflect
-    real generalisation error instead of training-set fit.
-  - R² reported is also out-of-fold (from cross_validate) alongside in-sample.
-  - MIN_R2_THRESHOLD and MIN_TRAINING_COUNTRIES are imported from constants.py
-    so evaluate.py shares the same values without duplication.
-"""
 import logging
 import math
 import numpy as np
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
+from sklearn.impute import KNNImputer
+from sklearn.linear_model import RidgeCV
 from psycopg2.extras import execute_values
 
 from db.connection import get_conn
@@ -32,15 +13,8 @@ from etl.utils.signal_pivot import SIGNAL_KEYS, signal_coverage
 
 log = logging.getLogger(__name__)
 
-# Ordered list of ALL features the model uses. Signal keys first, then the
-# size-anchor feature. evaluate.py and estimator.py must use the same list.
-ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2", "signal_count"]
+ALL_FEATURE_KEYS = list(SIGNAL_KEYS) + ["log_area_km2"]
 
-# Per-feature Ridge alphas for signal-level features.
-SIGNAL_FEATURE_ALPHAS = [0.001, 0.1, 10.0, 10.0, 10.0, 1e-6, 0.1]
-CONTINENT_ALPHA = 1.0
-
-# Continent mapping from UN sub-region → 5 continents
 UN_REGION_TO_CONTINENT = {
     "Eastern Africa": "Africa", "Middle Africa": "Africa",
     "Northern Africa": "Africa", "Southern Africa": "Africa",
@@ -56,18 +30,10 @@ UN_REGION_TO_CONTINENT = {
     "Micronesia": "Oceania", "Polynesia": "Oceania",
 }
 
-# Europe is dropped as reference, so only 4 dummy columns.
 KEPT_CONTINENTS = ["Africa", "Americas", "Asia", "Oceania"]
 
 
 def _load_training_data(conn) -> list[dict]:
-    """
-    Fetch the most recent year of data for each country where
-    source_confidence = 'high'. Signals are pivoted laterally.
-    area_km2 (static land area) and region are pulled from country_metadata
-    so _build_feature_matrix can use log(area) as a size anchor and add
-    continent dummies.
-    """
     with conn.cursor() as cur:
         cur.execute("""
             WITH latest_pop AS (
@@ -93,15 +59,15 @@ def _load_training_data(conn) -> list[dict]:
                     lp.population,
                     cm.area_km2,
                     cm.region,
-                    MAX(CASE WHEN ls.signal_type = 'telecom'     THEN ls.score END) AS telecom,
-                    MAX(CASE WHEN ls.signal_type = 'electricity' THEN ls.score END) AS electricity,
-                    MAX(CASE WHEN ls.signal_type = 'building'    THEN ls.score END) AS building,
-                    MAX(CASE WHEN ls.signal_type = 'mobility'    THEN ls.score END) AS mobility,
-                    MAX(CASE WHEN ls.signal_type = 'internet'    THEN ls.score END) AS internet
+                    cm.gdp_per_capita,
+                    MAX(CASE WHEN ls.signal_type = 'telecom'      THEN ls.score END) AS telecom,
+                    MAX(CASE WHEN ls.signal_type = 'electricity'  THEN ls.score END) AS electricity,
+                    MAX(CASE WHEN ls.signal_type = 'nightlights'  THEN ls.score END) AS nightlights,
+                    MAX(CASE WHEN ls.signal_type = 'mobility' THEN ls.score END) AS mobility
                 FROM latest_pop lp
                 LEFT JOIN latest_signals ls ON ls.iso2 = lp.iso2
                 LEFT JOIN country_metadata cm ON cm.iso2 = lp.iso2
-                GROUP BY lp.iso2, lp.population, cm.area_km2, cm.region
+                GROUP BY lp.iso2, lp.population, cm.area_km2, cm.region, cm.gdp_per_capita
             )
             SELECT * FROM pivoted
             WHERE population IS NOT NULL AND population > 0
@@ -110,94 +76,90 @@ def _load_training_data(conn) -> list[dict]:
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+GDP_MIN = 100
+GDP_MAX = 200_000
+
+
+def _normalise_gdp(gdp_raw: float | None) -> float | None:
+    if gdp_raw is None or gdp_raw <= 0:
+        return None
+    safe = max(min(gdp_raw, GDP_MAX), GDP_MIN)
+    log_val = math.log(safe)
+    log_min = math.log(GDP_MIN)
+    log_max = math.log(GDP_MAX)
+    return round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
+
+
 def _build_feature_matrix(rows: list[dict], return_regions: bool = False) -> tuple[np.ndarray, list[str]]:
-    """
-    Build X from ALL_FEATURE_KEYS.
-
-    Missing signal scores → mean imputation using training-set means (not
-    zero-imputation, which biases predictions downward).
-
-    log_area_km2 uses the static area_km2 stored in country_metadata.
-    Countries with missing or zero area fall back to the training-set mean.
-
-    When return_regions=True, a third element (list of region strings) is
-    returned alongside (X_raw, iso2s).
-    """
     iso2s = [r["iso2"] for r in rows]
 
-    # Compute per-signal training means (excluding None) for imputation
-    signal_means: dict[str, float] = {}
-    for k in SIGNAL_KEYS:
-        vals = [float(r[k]) for r in rows if r.get(k) is not None]
-        signal_means[k] = float(np.mean(vals)) if vals else 0.0
-
-    # Compute log(area) mean for imputation
-    log_areas = [
-        math.log(float(r["area_km2"]))
-        for r in rows
-        if r.get("area_km2") and float(r["area_km2"]) > 0
-    ]
-    log_area_mean = float(np.mean(log_areas)) if log_areas else 0.0
-
-    X_rows = []
+    signal_vals = []
+    log_areas = []
     regions = []
     for r in rows:
-        signal_vals = [
-            float(r[k]) if r.get(k) is not None else signal_means[k]
-            for k in SIGNAL_KEYS
-        ]
-        signal_count = sum(1 for k in SIGNAL_KEYS if r.get(k) is not None)
+        vals = []
+        for k in SIGNAL_KEYS:
+            if k == "gdp_per_capita":
+                gdp = _normalise_gdp(r.get("gdp_per_capita"))
+                vals.append(float(gdp) if gdp is not None else np.nan)
+            else:
+                vals.append(float(r[k]) if r.get(k) is not None else np.nan)
+        signal_vals.append(vals)
         area = r.get("area_km2")
-        log_area = math.log(float(area)) if area and float(area) > 0 else log_area_mean
-        X_rows.append(signal_vals + [log_area, signal_count])
+        if area and float(area) > 0:
+            log_areas.append(math.log(float(area)))
+        else:
+            log_areas.append(np.nan)
         regions.append(r.get("region"))
 
-    result: tuple = (np.array(X_rows, dtype=float), iso2s)
+    signal_arr = np.array(signal_vals, dtype=float)
+    log_area_arr = np.array(log_areas, dtype=float)
+
+    log_area_mean = float(np.nanmean(log_area_arr)) if np.any(~np.isnan(log_area_arr)) else 0.0
+    log_area_arr = np.where(np.isnan(log_area_arr), log_area_mean, log_area_arr)
+
+    imputer = KNNImputer(n_neighbors=5, weights='distance')
+    signal_arr_imp = imputer.fit_transform(signal_arr)
+
+    X_rows = np.column_stack([signal_arr_imp, log_area_arr])
+
+    result: tuple = (X_rows, iso2s)
     if return_regions:
         result = result + (regions,)
     return result
 
 
-def _fit_ridge_per_feature(X: np.ndarray, y: np.ndarray, alphas: np.ndarray) -> tuple[np.ndarray, float]:
-    """
-    Ridge regression with per-feature penalties via closed-form solve.
-    Centres X and y internally so the intercept is unregularised.
-    """
-    X_mean = np.mean(X, axis=0)
-    y_mean = np.mean(y)
-    X_c = X - X_mean
-    y_c = y - y_mean
-    penalty = np.diag(alphas)
-    w = np.linalg.solve(X_c.T @ X_c + penalty, X_c.T @ y_c)
-    intercept = float(y_mean - X_mean @ w)
-    return w, intercept
+def _fit_ridge(X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray | None = None) -> tuple:
+    if sample_weight is not None:
+        from sklearn.linear_model import Ridge
+        from sklearn.model_selection import GridSearchCV
+        alphas = np.logspace(-4, 2, 30)
+        gs = GridSearchCV(Ridge(fit_intercept=True), {'alpha': alphas}, cv=5, scoring='neg_mean_squared_error')
+        gs.fit(X, y, sample_weight=sample_weight)
+        return gs.best_estimator_.coef_, gs.best_estimator_.intercept_, gs.best_estimator_.alpha
+    model = RidgeCV(alphas=np.logspace(-4, 2, 30), cv=5, fit_intercept=True)
+    model.fit(X, y)
+    return model.coef_, model.intercept_, model.alpha_
 
 
 def _persist_model(conn, weights: dict, scaler_mean: list, scaler_scale: list,
                    residuals: dict, region_coefs: dict | None = None) -> int:
-    """
-    Insert a new model_weights row (including scaler params + region_coefs)
-    and all per-country residuals. Returns model_id.
-
-    scaler_mean and scaler_scale are stored as arrays so estimator.py can
-    reconstruct the exact StandardScaler that was fit during training.
-    The column order matches ALL_FEATURE_KEYS.
-    region_coefs is stored as JSONB for continent-level adjustments.
-    """
     import json
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO model_weights
-                (intercept, telecom, electricity, building, mobility, internet,
-                 log_area_km2, signal_count, lambda, r_squared, cv_r_squared,
-                 n_training, scaler_mean, scaler_scale, region_coefs)
+                (intercept, telecom, electricity, gdp_per_capita, nightlights, mobility,
+                 log_area_km2, signal_count, lambda,
+                 r_squared, cv_r_squared, n_training, scaler_mean, scaler_scale,
+                 region_coefs, version)
             VALUES
-                (%(intercept)s, %(telecom)s, %(electricity)s, %(building)s,
-                 %(mobility)s, %(internet)s, %(log_area_km2)s, %(signal_count)s,
-                 %(lambda)s, %(r_squared)s, %(cv_r_squared)s,
-                 %(n_training)s, %(scaler_mean)s, %(scaler_scale)s,
-                 %(region_coefs)s::jsonb)
+                (%(intercept)s, %(telecom)s, %(electricity)s, %(gdp_per_capita)s,
+                 %(nightlights)s, %(mobility)s, %(log_area_km2)s, %(signal_count)s,
+                 %(lambda)s,
+                 %(r_squared)s, %(cv_r_squared)s, %(n_training)s,
+                 %(scaler_mean)s, %(scaler_scale)s, %(region_coefs)s::jsonb,
+                 'v3')
             RETURNING id
             """,
             {**weights, "scaler_mean": scaler_mean, "scaler_scale": scaler_scale,
@@ -222,32 +184,15 @@ def _persist_model(conn, weights: dict, scaler_mean: list, scaler_scale: list,
 
 
 def run_training() -> dict:
-    """
-    Full training cycle:
-      1. Load high-confidence population + signals from DB
-      2. Filter countries with coverage < 0.4
-      3. Build feature matrix (signals + log_area_km2, mean-imputed)
-      4. Per-feature Ridge (closed-form): log_area_km2 gets near-zero α
-         (1e-6), signal features share a common α selected by 5-fold CV
-      5. Fit scaler + per-feature Ridge on full data with best α
-      6. Compute out-of-fold residuals (scaler re-fit per fold)
-      7. Persist model_weights (incl. scaler params) + model_residuals
-
-    Returns dict with model_id, r_squared, cv_r_squared, n_training, lambda,
-    coefficients (in original un-scaled space for interpretability).
-
-    Raises RuntimeError if fewer than MIN_TRAINING_COUNTRIES pass the filter.
-    """
     log.info("[trainer] Loading training data from DB...")
     with get_conn() as conn:
         rows = _load_training_data(conn)
 
     log.info("[trainer] Loaded %d countries with source_confidence='high'", len(rows))
 
-    # Filter by signal coverage
-    filtered = [r for r in rows if signal_coverage(r) >= 0.4]
+    filtered = [r for r in rows if signal_coverage(r) >= 0.2]
     dropped = len(rows) - len(filtered)
-    log.info("[trainer] %d pass coverage ≥ 0.4 filter (%d dropped)", len(filtered), dropped)
+    log.info("[trainer] %d pass coverage >= 0.2 filter (%d dropped)", len(filtered), dropped)
 
     if len(filtered) < MIN_TRAINING_COUNTRIES:
         raise RuntimeError(
@@ -255,12 +200,13 @@ def run_training() -> dict:
             f"(minimum {MIN_TRAINING_COUNTRIES}). Run ETL jobs first."
         )
 
-    # Build feature matrix with mean imputation + region data
     X_raw_sig, iso2s, regions = _build_feature_matrix(filtered, return_regions=True)
     y = np.array([math.log(float(r["population"])) for r in filtered])
+    # Population-weighted training so large countries contribute more to the loss
+    pops = np.array([float(r["population"]) for r in filtered])
+    sample_weight = pops / np.mean(pops)
     N_SIG = len(ALL_FEATURE_KEYS)
 
-    # Continent one-hot encode (Europe dropped as reference)
     continents = np.array([UN_REGION_TO_CONTINENT.get(r, "") for r in regions])
     dummies = np.zeros((len(continents), len(KEPT_CONTINENTS)))
     for i, cont in enumerate(continents):
@@ -272,10 +218,8 @@ def run_training() -> dict:
     log.info("[trainer] X shape: %s  |  y range: [%.2f, %.2f]  |  continents=%s",
              X_raw.shape, y.min(), y.max(), list(KEPT_CONTINENTS))
 
-    PER_FEATURE_ALPHAS = np.array(SIGNAL_FEATURE_ALPHAS + [CONTINENT_ALPHA] * N_CONT)
     cv = KFold(n_splits=5, shuffle=True, random_state=42)
 
-    # --- CV loop: compute out-of-fold R² ---
     fold_mses = []
     fold_r2s = []
     for train_idx, val_idx in cv.split(X_raw):
@@ -283,12 +227,10 @@ def run_training() -> dict:
         y_tr, y_va = y[train_idx], y[val_idx]
 
         scaler_fold = StandardScaler()
-        X_tr_sig_s = scaler_fold.fit_transform(X_tr[:, :N_SIG])
-        X_va_sig_s = scaler_fold.transform(X_va[:, :N_SIG])
-        X_tr_s = np.hstack([X_tr_sig_s, X_tr[:, N_SIG:]])
-        X_va_s = np.hstack([X_va_sig_s, X_va[:, N_SIG:]])
+        X_tr_s = scaler_fold.fit_transform(X_tr)
+        X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold = _fit_ridge_per_feature(X_tr_s, y_tr, PER_FEATURE_ALPHAS)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr, sample_weight[train_idx])
 
         y_pred = X_va_s @ w_fold + int_fold
         fold_mses.append(float(np.mean((y_va - y_pred) ** 2)))
@@ -298,66 +240,63 @@ def run_training() -> dict:
 
     best_cv_mse = float(np.mean(fold_mses))
     best_cv_r2 = float(np.mean(fold_r2s))
-    log.info("[trainer] CV R²=%s  |  CV MSE=%s  |  per-feature α=%s",
-             best_cv_r2, best_cv_mse, list(PER_FEATURE_ALPHAS))
+    log.info("[trainer] CV R²=%s  |  CV MSE=%s", best_cv_r2, best_cv_mse)
 
-    # --- Fit on full data ---
     scaler = StandardScaler()
-    X_sig_s = scaler.fit_transform(X_raw[:, :N_SIG])
-    X = np.hstack([X_sig_s, X_raw[:, N_SIG:]])
-    w_full, intercept_full = _fit_ridge_per_feature(X, y, PER_FEATURE_ALPHAS)
+    X = scaler.fit_transform(X_raw)
+    w_full, intercept_full, best_alpha = _fit_ridge(X, y, sample_weight)
 
     w_signal = w_full[:N_SIG]
     w_continent = w_full[N_SIG:]
     region_coefs = dict(zip(KEPT_CONTINENTS, [round(float(c), 6) for c in w_continent]))
 
-    # --- Out-of-fold predictions for residuals ---
     y_oof = np.empty(len(y))
     for train_idx, val_idx in cv.split(X_raw):
         X_tr, X_va = X_raw[train_idx], X_raw[val_idx]
         y_tr = y[train_idx]
 
         scaler_fold = StandardScaler()
-        X_tr_sig_s = scaler_fold.fit_transform(X_tr[:, :N_SIG])
-        X_va_sig_s = scaler_fold.transform(X_va[:, :N_SIG])
-        X_tr_s = np.hstack([X_tr_sig_s, X_tr[:, N_SIG:]])
-        X_va_s = np.hstack([X_va_sig_s, X_va[:, N_SIG:]])
+        X_tr_s = scaler_fold.fit_transform(X_tr)
+        X_va_s = scaler_fold.transform(X_va)
 
-        w_fold, int_fold = _fit_ridge_per_feature(X_tr_s, y_tr, PER_FEATURE_ALPHAS)
+        w_fold, int_fold, _ = _fit_ridge(X_tr_s, y_tr, sample_weight[train_idx])
         y_oof[val_idx] = X_va_s @ w_fold + int_fold
 
     residuals = {iso2: float(abs(y_oof[i] - y[i])) for i, iso2 in enumerate(iso2s)}
 
-    # --- In-sample R² ---
     y_pred_insample = X @ w_full + intercept_full
     ss_res = float(np.sum((y - y_pred_insample) ** 2))
     ss_tot = float(np.sum((y - np.mean(y)) ** 2))
     r_squared_insample = round(1.0 - ss_res / ss_tot, 4)
 
     coefs_scaled = dict(zip(ALL_FEATURE_KEYS, w_signal.tolist()))
-    log.info("[trainer] In-sample R²=%s  CV R²=%s  |  signal coefs=%s  region coefs=%s",
-             r_squared_insample, best_cv_r2, coefs_scaled, region_coefs)
+    log.info("[trainer] In-sample R²=%s  CV R²=%s  α=%s  |  signal coefs=%s  region coefs=%s",
+             r_squared_insample, best_cv_r2, best_alpha, coefs_scaled, region_coefs)
 
     if best_cv_r2 < MIN_R2_THRESHOLD:
         log.warning("[trainer] CV R²=%s is below %.2f — model quality is low", best_cv_r2, MIN_R2_THRESHOLD)
 
-    # Persist — use CV R² as the canonical r_squared for health checks
     weights_row = {
         **coefs_scaled,
         "intercept":      float(intercept_full),
-        "lambda":         0.0,
+        "signal_count":   0.0,
+        "lambda":         float(best_alpha),
         "r_squared":      r_squared_insample,
         "cv_r_squared":   best_cv_r2,
         "n_training":     len(filtered),
         "region_coefs":   region_coefs,
     }
 
+    # Only store scaler for the signal features (exclude continent dummies)
+    scaler_mean_sig = scaler.mean_[:N_SIG].tolist()
+    scaler_scale_sig = scaler.scale_[:N_SIG].tolist()
+
     with get_conn() as conn:
         model_id = _persist_model(
             conn,
             weights_row,
-            scaler.mean_.tolist(),
-            scaler.scale_.tolist(),
+            scaler_mean_sig,
+            scaler_scale_sig,
             residuals,
             region_coefs,
         )
@@ -367,14 +306,15 @@ def run_training() -> dict:
         "r_squared":     r_squared_insample,
         "cv_r_squared":  best_cv_r2,
         "n_training":    len(filtered),
-        "lambda":        0.0,
+        "lambda":        float(best_alpha),
         "coefficients":  coefs_scaled,
         "region_coefs":  region_coefs,
         "intercept":     float(intercept_full),
     }
 
     log.info(
-        "[trainer] ✓ Saved model_id=%s  R²=%s  CV_R²=%s  n=%s  region_coefs=%s",
-        model_id, r_squared_insample, best_cv_r2, len(filtered), region_coefs,
+        "[trainer] ✓ Saved model_id=%s  R²=%s  CV_R²=%s  n=%s  α=%s  region_coefs=%s",
+        model_id, r_squared_insample, best_cv_r2, len(filtered),
+        best_alpha, region_coefs,
     )
     return result

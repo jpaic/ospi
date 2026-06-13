@@ -9,7 +9,7 @@ Logic
 A country's confidence is determined by two factors:
 
 1. Signal coverage  — what fraction of the 5 signals (telecom, electricity,
-   building, mobility, internet) are non-null in the most recent year.
+    gdp_per_capita, nightlights, mobility) are non-null in the most recent year.
 
 2. Population years — how many distinct years of population data exist
    for that country (out of the possible 2010–2024 window = 15 years).
@@ -36,8 +36,11 @@ from etl.utils.signal_pivot import SIGNAL_KEYS
 
 log = logging.getLogger(__name__)
 
+# gdp_per_capita is read from country_metadata, not the signals table
+STORE_SIGNAL_KEYS = [k for k in SIGNAL_KEYS if k != "gdp_per_capita"]
+
 # Thresholds — edit here, nowhere else
-HIGH_COVERAGE  = 1.0   # all 5 signals present
+HIGH_COVERAGE  = 1.0   # all stored signals present
 HIGH_POP_YEARS = 5    # at least 5 of 15 possible years
 MED_COVERAGE   = 0.6
 MED_POP_YEARS  = 8
@@ -96,7 +99,7 @@ def update_confidence() -> dict[str, int]:
 
         def _coverage(iso2: str) -> float:
             sigs = signals_by_iso2.get(iso2, {})
-            return sum(1 for k in SIGNAL_KEYS if sigs.get(k) is not None) / len(SIGNAL_KEYS)
+            return sum(1 for k in STORE_SIGNAL_KEYS if sigs.get(k) is not None) / len(STORE_SIGNAL_KEYS)
 
         # Compute confidence for every iso2
         assignments: dict[str, str] = {}

@@ -1,28 +1,32 @@
 import logging
+import math
 import os
 
 from fastapi import FastAPI, HTTPException, Request, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from dotenv import load_dotenv
+from pathlib import Path
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env")
 
 from services.estimator import (
     estimate_population,
     estimate_population_bulk,
     estimate_population_history_bulk,
+    VERSION_SIGNAL_KEYS,
 )
 from db.connection import get_conn
 from services.cache import get_cache
-
-load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="OSPI API", version="2.0.0")
 
+_allowed_origins = (os.getenv("ALLOWED_ORIGINS") or "http://localhost:3000,http://127.0.0.1:3000").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(","),
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -38,6 +42,27 @@ _retrain_status: dict[str, str | dict | None] = {"status": "idle", "result": Non
 # NOTE: `/countries/full` must be defined BEFORE `/countries/{iso2}` so FastAPI
 # matches the literal "full" before trying it as an iso2 parameter.
 
+GDP_NORM_MIN = 100
+GDP_NORM_MAX = 200_000
+
+
+def _normalise_gdp_signal(gdp_raw: float | None) -> float | None:
+    if gdp_raw is None or gdp_raw <= 0:
+        return None
+    safe = max(min(gdp_raw, GDP_NORM_MAX), GDP_NORM_MIN)
+    log_val = math.log(safe)
+    log_min = math.log(GDP_NORM_MIN)
+    log_max = math.log(GDP_NORM_MAX)
+    return round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
+
+
+def _inject_gdp(signals_map: dict[str, dict], iso2: str, gdp_raw: float | None):
+    """Inject normalised gdp_per_capita into a country's signals dict."""
+    gdp_norm = _normalise_gdp_signal(gdp_raw)
+    if gdp_norm is not None:
+        signals_map.setdefault(iso2, {}).setdefault("gdp_per_capita", gdp_norm)
+
+
 def get_signals_for_country(iso2: str) -> dict:
     """Returns {signal_type: score} for the latest year of each type."""
     with get_conn() as conn:
@@ -52,14 +77,21 @@ def get_signals_for_country(iso2: str) -> dict:
                 (iso2,)
             )
             rows = cur.fetchall()
-    return {
+            cur.execute(
+                "SELECT gdp_per_capita FROM country_metadata WHERE iso2 = %s",
+                (iso2,),
+            )
+            gdp_row = cur.fetchone()
+    result = {
         row[0]: float(row[1]) if row[1] is not None else None
         for row in rows
     }
+    _inject_gdp({iso2: result}, iso2, gdp_row[0] if gdp_row else None)
+    return result
 
 
 def get_all_signals_bulk() -> dict[str, dict]:
-    """Returns {iso2: {signal_type: score}} using two queries total."""
+    """Returns {iso2: {signal_type: score}} with gdp_per_capita injected from metadata."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -70,11 +102,17 @@ def get_all_signals_bulk() -> dict[str, dict]:
                 """
             )
             rows = cur.fetchall()
+            cur.execute(
+                "SELECT iso2, gdp_per_capita FROM country_metadata WHERE gdp_per_capita IS NOT NULL"
+            )
+            gdp_rows = {r[0]: float(r[1]) if r[1] is not None else None for r in cur.fetchall()}
     result: dict[str, dict] = {}
     for iso2, signal_type, score in rows:
         if iso2 not in result:
             result[iso2] = {}
         result[iso2][signal_type] = float(score) if score is not None else None
+    for iso2, gdp_raw in gdp_rows.items():
+        _inject_gdp(result, iso2, gdp_raw)
     return result
 
 
@@ -151,23 +189,20 @@ def calc_growth_rate(history: list[dict]) -> float:
     return round((latest - prev) / prev * 100, 4)
 
 
-def build_signals(signals: dict) -> dict:
-    """Normalise signal dict to a standard shape (telecom, electricity, etc.)."""
-    return {
-        "telecom":     signals.get("telecom"),
-        "electricity": signals.get("electricity"),
-        "building":    signals.get("building"),
-        "mobility":    signals.get("mobility"),
-        "internet":    signals.get("internet"),
-    }
+def build_signals(signals: dict, version: str = 'v3') -> dict:
+    """Normalise signal dict to the shape expected for the given model version."""
+    from services.estimator import VERSION_SIGNAL_KEYS
+    keys = VERSION_SIGNAL_KEYS.get(version, VERSION_SIGNAL_KEYS['v3'])
+    return {k: signals.get(k) for k in keys}
 
 
-def get_latest_model_info() -> dict | None:
-    """Returns the most recent model_weights row as a dict, or None."""
+def get_latest_model_info(version: str = 'v3') -> dict | None:
+    """Returns the most recent model_weights row for the given version, or None."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
+                "SELECT * FROM model_weights WHERE version = %s ORDER BY trained_at DESC LIMIT 1",
+                (version,),
             )
             row = cur.fetchone()
             if not row:
@@ -178,7 +213,7 @@ def get_latest_model_info() -> dict | None:
 
 # ── Details (cached via AppCache) ─────────────────────────────────────────────
 
-def _build_details(model_id: int) -> dict:
+def _build_details(model_id: int, version: str = 'v3') -> dict:
     """Assemble the full /model/details payload.
 
     Steps:
@@ -212,6 +247,9 @@ def _build_details(model_id: int) -> dict:
             cols = [desc[0] for desc in cur.description]
             model = dict(zip(cols, row))
 
+    signal_keys = VERSION_SIGNAL_KEYS.get(version, ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"])
+    feature_keys = list(signal_keys) + (["log_area_km2", "signal_count"] if version == 'v2' else ["log_area_km2"])
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -230,7 +268,7 @@ def _build_details(model_id: int) -> dict:
             )
             names = {r[0]: r[1] for r in cur.fetchall()}
 
-    estimates = estimate_population_bulk(training_iso2s)
+    estimates = estimate_population_bulk(training_iso2s, version)
 
     scatter = []
     for iso2 in training_iso2s:
@@ -247,7 +285,7 @@ def _build_details(model_id: int) -> dict:
             "official": official,
             "ospi": ospi,
             "residual": round(residual, 4),
-            "residual_pct": round(abs(ospi - official) / official * 100, 2) if official else 0,
+            "residual_pct": round((ospi - official) / official * 100, 2) if official else 0,
         })
 
     scatter.sort(key=lambda x: x["official"])
@@ -300,10 +338,7 @@ def _build_details(model_id: int) -> dict:
             "cv_r_squared": model.get("cv_r_squared"),
             "n_training": model.get("n_training"),
             "intercept": model.get("intercept"),
-            "coefficients": {
-                k: model.get(k)
-                for k in ["telecom", "electricity", "building", "mobility", "internet", "log_area_km2", "signal_count"]
-            },
+            "coefficients": {k: model.get(k) for k in feature_keys},
             "region_coefs": model.get("region_coefs"),
         },
         "training_scatter": scatter,
@@ -332,11 +367,11 @@ def _build_details(model_id: int) -> dict:
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/countries")
-def list_countries():
+def list_countries(version: str = 'v3'):
     all_signals = get_all_signals_bulk()
     all_pops    = get_all_populations_bulk()
     iso2_list   = sorted(all_signals.keys())
-    estimates   = estimate_population_bulk(iso2_list)
+    estimates   = estimate_population_bulk(iso2_list, version)
 
     logger.info("signals=%d, pops=%d, estimates=%d", len(all_signals), len(all_pops), len(estimates))
     no_official = [k for k, v in estimates.items() if v and v.get("official") is None]
@@ -354,20 +389,20 @@ def list_countries():
             "ospi":             est["estimate"],
             "conf":             est["confidence"],
             "composite_signal": est.get("composite_signal"),
-            "signals":          build_signals(all_signals.get(iso2, {})),
+            "signals":          build_signals(all_signals.get(iso2, {}), version),
         })
     return results
 
 
 @app.get("/countries/full")
-def list_countries_full():
+def list_countries_full(version: str = 'v3'):
     """Rich /countries — metadata, signals, full official/ospi histories."""
     all_signals   = get_all_signals_bulk()
     all_histories = get_all_population_histories()
     all_metadata  = get_all_metadata()
     iso2_list     = sorted(all_metadata.keys())
-    estimates     = estimate_population_bulk(iso2_list)
-    ospi_histories = estimate_population_history_bulk(iso2_list)
+    estimates     = estimate_population_bulk(iso2_list, version)
+    ospi_histories = estimate_population_history_bulk(iso2_list, version)
 
     results = []
     for iso2 in iso2_list:
@@ -392,7 +427,7 @@ def list_countries_full():
             "official":     official,
             "ospi":         ospi_estimate,
             "conf":         est.get("confidence") or "low",
-            "signals":      build_signals(all_signals.get(iso2, {})),
+            "signals":      build_signals(all_signals.get(iso2, {}), version),
             "history":      history,
             "ospiHistory":  ospi_histories.get(iso2, []),
             "urbanPct":     meta["urbanPct"],
@@ -407,10 +442,10 @@ def list_countries_full():
 
 
 @app.get("/countries/{iso2}")
-def get_country(iso2: str):
+def get_country(iso2: str, version: str = 'v3'):
     """Single-country estimate + latest signals."""
     iso2 = iso2.upper()
-    est  = estimate_population(iso2)
+    est  = estimate_population(iso2, version)
     if not est or est.get("official") is None:
         raise HTTPException(status_code=404, detail=f"No data found for {iso2}")
     signals = get_signals_for_country(iso2)
@@ -421,25 +456,25 @@ def get_country(iso2: str):
         "conf":             est["confidence"],
         "composite_signal": est.get("composite_signal"),
         "signal_coverage":  est.get("signal_coverage"),
-        "signals":          build_signals(signals),
+        "signals":          build_signals(signals, version),
     }
 
 
 # ── Model endpoints ───────────────────────────────────────────────────────────
 
 @app.get("/model/details")
-def model_details():
+def model_details(version: str = 'v3'):
     """Full model diagnostics: scatter, histogram, outliers, confidence, CV, feature importance."""
-    model = get_latest_model_info()
+    model = get_latest_model_info(version)
     if not model:
         return {"trained": False}
-    return _build_details(model["id"])
+    return _build_details(model["id"], version)
 
 
 @app.get("/model/status")
-def model_status():
+def model_status(version: str = 'v3'):
     """Quick training-status check (no historical data)."""
-    model = get_latest_model_info()
+    model = get_latest_model_info(version)
     if not model:
         return {
             "trained":    False,
@@ -451,6 +486,8 @@ def model_status():
             "mode":       "v1_fallback",
         }
 
+    signal_keys = VERSION_SIGNAL_KEYS.get(version, ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"])
+
     return {
         "trained":    True,
         "model_id":   model["id"],
@@ -458,22 +495,16 @@ def model_status():
         "r_squared":  model.get("r_squared"),
         "n_training": model.get("n_training"),
         "lambda":     model.get("lambda"),
-        "coefficients": {
-            "intercept":   model.get("intercept"),
-            "telecom":     model.get("telecom"),
-            "electricity": model.get("electricity"),
-            "building":    model.get("building"),
-            "mobility":    model.get("mobility"),
-            "internet":    model.get("internet"),
-        },
+        "coefficients": {k: model.get(k) for k in signal_keys + (["log_area_km2", "signal_count"] if version == 'v2' else ["log_area_km2"])},
+        "signal_keys": signal_keys,
         "mode": "v2_regression",
     }
 
 
 @app.get("/model/version")
-def model_version():
+def model_version(version: str = 'v3'):
     """Model-run label (e.g. 2024-Q3) and metadata for the landing page."""
-    model = get_latest_model_info()
+    model = get_latest_model_info(version)
     if not model:
         return {
             "etl_year": 2024,
@@ -493,14 +524,69 @@ def model_version():
             cur.execute("SELECT COUNT(DISTINCT iso2) FROM signals")
             n_countries = cur.fetchone()[0]
 
+    signal_keys = VERSION_SIGNAL_KEYS.get(version, ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"])
+
     return {
         "etl_year": 2024,
         "model_run": model_run,
         "model_id": model["id"],
         "r_squared": model.get("r_squared"),
         "n_countries": n_countries,
-        "n_signals": 5,
+        "n_signals": len(signal_keys),
     }
+
+
+@app.get("/model/outliers")
+def model_outliers(version: str = 'v3', limit: int = 10):
+    """Top-N countries with largest model residuals for the given version."""
+    model = get_latest_model_info(version)
+    if not model:
+        return []
+
+    from services.estimator import estimate_population_bulk
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, residual FROM model_residuals WHERE model_id = %s ORDER BY residual DESC LIMIT %s",
+                (model["id"], limit),
+            )
+            residual_rows = cur.fetchall()
+
+    if not residual_rows:
+        return []
+
+    top_iso2s = [r[0] for r in residual_rows]
+    residuals_map = {r[0]: float(r[1]) for r in residual_rows}
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, name FROM country_metadata WHERE iso2 = ANY(%s)",
+                (top_iso2s,),
+            )
+            names = {r[0]: r[1] for r in cur.fetchall()}
+
+    estimates = estimate_population_bulk(top_iso2s, version)
+
+    result = []
+    for iso2 in top_iso2s:
+        est = estimates.get(iso2, {})
+        official = est.get("official")
+        ospi = est.get("estimate")
+        name = names.get(iso2, iso2)
+        if official is None or ospi is None:
+            continue
+        result.append({
+            "iso2": iso2,
+            "name": name,
+            "official": official,
+            "ospi": ospi,
+            "residual": round(residuals_map[iso2], 4),
+            "residual_pct": round((ospi - official) / official * 100, 2) if official else 0,
+        })
+
+    return result
 
 
 # ── Admin endpoints ───────────────────────────────────────────────────────────

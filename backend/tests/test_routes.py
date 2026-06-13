@@ -110,9 +110,9 @@ class TestModelStatus:
             "intercept": 5.0,
             "telecom": 0.3,
             "electricity": 0.2,
-            "building": 0.1,
-            "mobility": 0.4,
-            "internet": 0.5,
+            "gdp_per_capita": 0.1,
+            "nightlights": 0.4,
+            "mobility": 0.5,
         }
         with patch("api.routes.get_latest_model_info", return_value=mock_model):
             resp = client.get("/model/status")

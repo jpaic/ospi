@@ -27,20 +27,30 @@ import math
 import logging
 from db.connection import get_conn
 from services.cache import get_cache
-from etl.training.trainer import ALL_FEATURE_KEYS, UN_REGION_TO_CONTINENT
+from etl.training.trainer import UN_REGION_TO_CONTINENT
 
 logger = logging.getLogger(__name__)
 
-SIGNAL_KEYS = ["telecom", "electricity", "building", "mobility", "internet"]
+SIGNAL_KEYS = ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"]
+
+VERSION_SIGNAL_KEYS = {
+    "v2": ["telecom", "electricity", "building", "mobility", "internet"],
+    "v3": ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility"],
+}
+
+VERSION_FEATURE_KEYS = {
+    "v2": ["telecom", "electricity", "building", "mobility", "internet", "log_area_km2", "signal_count"],
+    "v3": ["telecom", "electricity", "gdp_per_capita", "nightlights", "mobility", "log_area_km2"],
+}
 
 # ── v1 fallback constants (used only when model_weights is empty) ─────────────
 
 _V1_WEIGHTS = {
-    "telecom":     0.25,
-    "electricity": 0.25,
-    "building":    0.20,
-    "mobility":    0.15,
-    "internet":    0.15,
+    "telecom":        0.25,
+    "electricity":    0.25,
+    "gdp_per_capita": 0.20,
+    "nightlights":    0.15,
+    "mobility":   0.15,
 }
 
 
@@ -50,22 +60,25 @@ _MODEL_CACHE_KEY = "estimator:model"
 _RESID_CACHE_KEY = "estimator:residuals"
 
 
-def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
+def _load_model_and_residuals(conn, version: str = 'v3') -> tuple[dict | None, dict]:
     cache = get_cache()
 
-    cached_model = cache.get(_MODEL_CACHE_KEY)
+    cache_key = f"estimator:model:{version}"
+    resid_cache_key = f"estimator:residuals:{version}"
+    cached_model = cache.get(cache_key)
     if cached_model is not None:
-        cached_resids = cache.get(_RESID_CACHE_KEY) or {}
+        cached_resids = cache.get(resid_cache_key) or {}
         return cached_model, cached_resids
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT * FROM model_weights ORDER BY trained_at DESC LIMIT 1"
+            "SELECT * FROM model_weights WHERE version = %s ORDER BY trained_at DESC LIMIT 1",
+            (version,),
         )
         row = cur.fetchone()
         if not row:
-            cache.set(_MODEL_CACHE_KEY, None)
-            cache.set(_RESID_CACHE_KEY, {})
+            cache.set(cache_key, None)
+            cache.set(resid_cache_key, {})
             return None, {}
 
         cols = [desc[0] for desc in cur.description]
@@ -78,16 +91,17 @@ def _load_model_and_residuals(conn) -> tuple[dict | None, dict]:
         )
         residuals = {r[0]: float(r[1]) for r in cur.fetchall()}
 
-    cache.set(_MODEL_CACHE_KEY, model)
-    cache.set(_RESID_CACHE_KEY, residuals)
+    cache.set(cache_key, model)
+    cache.set(resid_cache_key, residuals)
     logger.debug("Loaded model_id=%s (%d residuals)", model["id"], len(residuals))
     return model, residuals
 
 
 def _invalidate_model_cache():
     """Call after a retrain so the next request picks up fresh weights."""
-    get_cache().invalidate(_MODEL_CACHE_KEY)
-    get_cache().invalidate(_RESID_CACHE_KEY)
+    for ver in ("v2", "v3"):
+        get_cache().invalidate(f"estimator:model:{ver}")
+        get_cache().invalidate(f"estimator:residuals:{ver}")
     logger.info("Invalidated estimator cache")
 
 
@@ -97,12 +111,28 @@ def _scale_features(raw: list[float], scaler_mean: list[float], scaler_scale: li
     """
     Reproduce sklearn StandardScaler.transform for a single row.
     scaler_mean and scaler_scale are stored in model_weights and follow
-    the same column order as ALL_FEATURE_KEYS.
+    the same column order as the version's feature keys.
     """
     return [
         (raw[i] - scaler_mean[i]) / scaler_scale[i]
         for i in range(len(raw))
     ]
+
+
+# ── normalisation helpers ─────────────────────────────────────────────────────
+
+GDP_MIN = 100
+GDP_MAX = 200_000
+
+
+def _normalise_gdp(gdp_raw: float | None) -> float | None:
+    if gdp_raw is None or gdp_raw <= 0:
+        return None
+    safe = max(min(gdp_raw, GDP_MAX), GDP_MIN)
+    log_val = math.log(safe)
+    log_min = math.log(GDP_MIN)
+    log_max = math.log(GDP_MAX)
+    return round(((log_val - log_min) / (log_max - log_min)) * 100, 1)
 
 
 # ── log_area helper ───────────────────────────────────────────────────────────
@@ -146,6 +176,7 @@ def _compute_estimate_v2(
     official_pop: float | None = None,
     area_km2: float | None = None,
     region: str | None = None,
+    signal_keys: list[str] | None = None,
 ) -> dict:
     """
     Log-linear ridge regression estimate with continent-level adjustment.
@@ -156,30 +187,38 @@ def _compute_estimate_v2(
     residuals:   {iso2: abs_log_residual}
     area_km2:    static land area from country_metadata
     region:      UN sub-region for continent adjustment lookup
+    signal_keys: signal types for this model version (default SIGNAL_KEYS/v3)
     """
-    available = {k: signals[k] for k in SIGNAL_KEYS if signals.get(k) is not None}
-    coverage  = len(available) / len(SIGNAL_KEYS)
+    if signal_keys is None:
+        signal_keys = SIGNAL_KEYS
+    version = _version_for_signal_keys(signal_keys)
+    feature_keys = VERSION_FEATURE_KEYS[version]
+
+    available = {k: signals[k] for k in signal_keys if signals.get(k) is not None}
+    coverage  = len(available) / len(signal_keys)
 
     scaler_mean  = model.get("scaler_mean") or []
     scaler_scale = model.get("scaler_scale") or []
 
-    log_area_idx = ALL_FEATURE_KEYS.index("log_area_km2")
+    log_area_idx = feature_keys.index("log_area_km2")
     log_area_fallback = float(scaler_mean[log_area_idx]) if scaler_mean else 0.0
 
     signal_vals = [
         float(available.get(k, scaler_mean[i]))
-        for i, k in enumerate(SIGNAL_KEYS)
+        for i, k in enumerate(signal_keys)
     ]
     log_area    = _log_area_static(area_km2, log_area_fallback)
-    signal_count = len(available)
-    raw_features = signal_vals + [log_area, signal_count]
+    extra_features = []
+    if "signal_count" in feature_keys:
+        extra_features = [5.0]
+    raw_features = signal_vals + [log_area] + extra_features
 
     if scaler_mean and scaler_scale and len(scaler_mean) == len(raw_features):
         features = _scale_features(raw_features, scaler_mean, scaler_scale)
     else:
         features = raw_features
 
-    coefs    = [float(model[k]) for k in ALL_FEATURE_KEYS]
+    coefs    = [float(model[k]) for k in feature_keys]
     log_est  = float(model["intercept"]) + sum(c * f for c, f in zip(coefs, features))
 
     # Continent-level adjustment. Europe is reference (coef absorbed into intercept).
@@ -191,7 +230,7 @@ def _compute_estimate_v2(
 
     estimate = round(math.exp(log_est), 4)
 
-    composite  = sum(float(available.get(k, 0.0)) for k in SIGNAL_KEYS) / len(SIGNAL_KEYS)
+    composite  = sum(float(available.get(k, 0.0)) for k in signal_keys) / len(signal_keys)
     confidence = _confidence_v2(coverage, residuals.get(iso2))
 
     return {
@@ -201,6 +240,13 @@ def _compute_estimate_v2(
         "signal_coverage":  round(coverage, 2),
         "confidence":       confidence,
     }
+
+
+def _version_for_signal_keys(signal_keys: list[str]) -> str:
+    for ver, keys in VERSION_SIGNAL_KEYS.items():
+        if keys == signal_keys:
+            return ver
+    return "v3"
 
 
 # ── v1 fallback ───────────────────────────────────────────────────────────────
@@ -305,9 +351,22 @@ def get_region_bulk(iso2_list: list[str]) -> dict[str, str | None]:
             return {r[0]: r[1] for r in cur.fetchall()}
 
 
+def get_gdp_bulk(iso2_list: list[str]) -> dict[str, float | None]:
+    """Fetch GDP per capita from country_metadata."""
+    if not iso2_list:
+        return {}
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT iso2, gdp_per_capita FROM country_metadata WHERE iso2 = ANY(%s)",
+                (iso2_list,),
+            )
+            return {r[0]: float(r[1]) if r[1] is not None else None for r in cur.fetchall()}
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
+def estimate_population_bulk(iso2_list: list[str], version: str = 'v3') -> dict[str, dict]:
     if isinstance(iso2_list, str):
         iso2_list = [iso2_list]
     if not iso2_list:
@@ -317,9 +376,20 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
     signals_map   = get_signals_bulk(iso2_list)
     area_map      = get_area_bulk(iso2_list)
     region_map    = get_region_bulk(iso2_list)
+    gdp_map       = get_gdp_bulk(iso2_list)
+
+    signal_keys = VERSION_SIGNAL_KEYS.get(version, SIGNAL_KEYS)
+
+    # Inject gdp_per_capita into signals (log-normalised) for v3
+    if "gdp_per_capita" in signal_keys:
+        for iso2 in iso2_list:
+            gdp_raw = gdp_map.get(iso2)
+            gdp_norm = _normalise_gdp(gdp_raw)
+            if gdp_norm is not None:
+                signals_map.setdefault(iso2, {})["gdp_per_capita"] = gdp_norm
 
     with get_conn() as conn:
-        model, residuals = _load_model_and_residuals(conn)
+        model, residuals = _load_model_and_residuals(conn, version)
 
     results = {}
     for iso2 in iso2_list:
@@ -329,7 +399,7 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
         region   = region_map.get(iso2)
 
         if model:
-            est = _compute_estimate_v2(signals, model, residuals, iso2, official, area, region)
+            est = _compute_estimate_v2(signals, model, residuals, iso2, official, area, region, signal_keys)
         else:
             if official is None:
                 results[iso2] = {
@@ -347,16 +417,17 @@ def estimate_population_bulk(iso2_list: list[str]) -> dict[str, dict]:
     return results
 
 
-def estimate_population_history_bulk(iso2_list: list[str]) -> dict[str, list[dict]]:
+def estimate_population_history_bulk(iso2_list: list[str], version: str = 'v3') -> dict[str, list[dict]]:
     if isinstance(iso2_list, str):
         iso2_list = [iso2_list]
     if not iso2_list:
         return {}
 
+    signal_keys = VERSION_SIGNAL_KEYS.get(version, SIGNAL_KEYS)
     with get_conn() as conn:
-        model, residuals = _load_model_and_residuals(conn)
+        model, residuals = _load_model_and_residuals(conn, version)
         if model:
-            return _estimate_history_v2(iso2_list, model, residuals, conn)
+            return _estimate_history_v2(iso2_list, model, residuals, conn, signal_keys)
         else:
             return _estimate_history_v1(iso2_list, conn)
 
@@ -366,7 +437,10 @@ def _estimate_history_v2(
     model: dict,
     residuals: dict,
     conn,
+    signal_keys: list[str] | None = None,
 ) -> dict[str, list[dict]]:
+    if signal_keys is None:
+        signal_keys = SIGNAL_KEYS
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -392,16 +466,27 @@ def _estimate_history_v2(
         sig_rows = cur.fetchall()
 
         cur.execute(
-            "SELECT iso2, area_km2, region FROM country_metadata WHERE iso2 = ANY(%s)",
+            "SELECT iso2, area_km2, region, gdp_per_capita FROM country_metadata WHERE iso2 = ANY(%s)",
             (iso2_list,),
         )
-        metadata = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
+        metadata = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
 
     sig_by_country_year: dict[str, dict[int, dict]] = {}
     for iso2, signal_type, year, score in sig_rows:
         sig_by_country_year.setdefault(iso2, {}).setdefault(year, {})[signal_type] = (
             float(score) if score is not None else None
         )
+
+    # Inject gdp_per_capita into signals for each country (same for all years)
+    if "gdp_per_capita" in signal_keys:
+        for iso2 in iso2_list:
+            meta = metadata.get(iso2)
+            if meta:
+                _, _, gdp_raw = meta
+                gdp_norm = _normalise_gdp(gdp_raw)
+                if gdp_norm is not None:
+                    for year_sigs in sig_by_country_year.get(iso2, {}).values():
+                        year_sigs["gdp_per_capita"] = gdp_norm
 
     results: dict[str, list[dict]] = {iso2: [] for iso2 in iso2_list}
 
@@ -415,9 +500,9 @@ def _estimate_history_v2(
         if signals is None:
             signals = {}
 
-        area, region = metadata.get(iso2, (None, None))
+        area, region, _ = metadata.get(iso2, (None, None, None))
         est = _compute_estimate_v2(signals, model, residuals, iso2,
-                                    float(population), area, region)
+                                    float(population), area, region, signal_keys)
         results.setdefault(iso2, []).append({
             "y": int(year),
             "v": round(est["estimate"], 4),
@@ -434,9 +519,9 @@ def _estimate_history_v1(iso2_list: list[str], conn) -> dict[str, list[dict]]:
                 VALUES
                     ('telecom', 0.25::numeric),
                     ('electricity', 0.25::numeric),
-                    ('building', 0.20::numeric),
-                    ('mobility', 0.15::numeric),
-                    ('internet', 0.15::numeric)
+                    ('gdp_per_capita', 0.20::numeric),
+                    ('nightlights', 0.15::numeric),
+                    ('mobility', 0.15::numeric)
             ),
             yearly AS (
                 SELECT
@@ -476,8 +561,8 @@ def _estimate_history_v1(iso2_list: list[str], conn) -> dict[str, list[dict]]:
 
 # ── Backward-compatible single-country wrapper ────────────────────────────────
 
-def estimate_population(iso2: str) -> dict:
-    return estimate_population_bulk([iso2]).get(iso2, {
+def estimate_population(iso2: str, version: str = 'v3') -> dict:
+    return estimate_population_bulk([iso2], version).get(iso2, {
         "official": None, "estimate": None,
         "confidence": "low", "composite_signal": None, "signal_coverage": 0.0,
     })

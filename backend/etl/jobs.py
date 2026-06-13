@@ -4,9 +4,7 @@ from etl.signals.metadata import fetch_metadata_signals, store_metadata_signals
 from etl.signals.population import fetch_population_signals, store_population_signals
 from etl.signals.electricity import fetch_electricity_signals, store_electricity_signals
 from etl.signals.telecom import fetch_telecom_signals, store_telecom_signals
-from etl.signals.internet import fetch_internet_signals, store_internet_signals
-from etl.signals.mobility import fetch_mobility_signals, store_mobility_signals
-from etl.signals.building import fetch_building_signals, store_building_signals
+from etl.signals.nightlights import fetch_nightlights_signals, store_nightlights_signals
 from etl.training.confidence import update_confidence
 from db.connection import get_conn
 
@@ -68,33 +66,24 @@ def run_telecom():
              lambda: clear_signal_type("telecom"))
 
 
-def run_internet():
-    _run_etl("internet", fetch_internet_signals, store_internet_signals,
-             lambda: clear_signal_type("internet"))
-
-
-def run_mobility():
-    _run_etl("mobility", fetch_mobility_signals, store_mobility_signals,
-             lambda: clear_signal_type("mobility"))
-
-
-def run_building():
-    _run_etl("building", fetch_building_signals, store_building_signals,
-             lambda: clear_signal_type("building"))
+def run_nightlights():
+    _run_etl("nightlights", fetch_nightlights_signals, store_nightlights_signals,
+             lambda: clear_signal_type("nightlights"))
 
 
 def run_model_training() -> dict:
     from etl.training.trainer import run_training
     from services.estimator import _invalidate_model_cache
 
-    logger.info("Running ML model training (v2 ridge regression)...")
+    logger.info("Running ML model training (v3 ElasticNet)...")
 
     counts = update_confidence()
     logger.info("Confidence updated — high=%d med=%d low=%d",
                 counts["high"], counts["med"], counts["low"])
 
-    result = run_training()
     apply_schema_patches()
+
+    result = run_training()
 
     _invalidate_model_cache()
 
@@ -129,8 +118,7 @@ if __name__ == "__main__":
 
     run_electricity()
     run_telecom()
-    run_internet()
-    run_building()
+    run_nightlights()
     logger.info("ETL jobs completed.")
 
     run_model_training()

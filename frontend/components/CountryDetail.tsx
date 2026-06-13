@@ -15,9 +15,9 @@ interface Props { country: Country; onBack?: () => void }
 const SIGNALS: { key: keyof Country['signals']; label: string }[] = [
   { key: 'telecom', label: 'Telecom' },
   { key: 'electricity', label: 'Electricity' },
-  { key: 'building', label: 'Building' },
+  { key: 'gdp_per_capita', label: 'GDP pc' },
+  { key: 'nightlights', label: 'Nightlights' },
   { key: 'mobility', label: 'Mobility' },
-  { key: 'internet', label: 'Internet' },
 ]
 
 function signalColor(v: number): string {
@@ -49,7 +49,7 @@ export default function CountryDetail({ country: c, onBack }: Props) {
   const delta = deltaStr(c)
   const isPos = c.ospi >= c.official
   const badge = noSignals ? '#a1a1aa' : confColor(c.conf)
-  const avgSig = Math.round(Object.values(c.signals).reduce((a, b) => a + b, 0) / 5)
+  const avgSig = Math.round(Object.values(c.signals).reduce((a: number, b) => a + (b ?? 0), 0) / 5)
 
   useEffect(() => {
     if (!trendRef.current || !radarRef.current) return
@@ -158,9 +158,9 @@ export default function CountryDetail({ country: c, onBack }: Props) {
       radarInst.current = new Chart(radarRef.current!, {
         type: 'radar',
         data: {
-          labels: ['Telecom', 'Electricity', 'Building', 'Mobility', 'Internet'],
+          labels: ['Telecom', 'Electricity', 'GDP pc', 'Nightlights', 'Mobility'],
           datasets: [{
-            data: SIGNALS.map(s => c.signals[s.key]),
+            data: SIGNALS.map(s => c.signals[s.key] ?? 0),
             backgroundColor: noSignals
               ? (isDark ? 'rgba(113,113,122,0.1)' : 'rgba(161,161,170,0.1)')
               : (isDark ? 'rgba(29,158,117,0.15)' : 'rgba(29,158,117,0.1)'),
@@ -364,7 +364,7 @@ export default function CountryDetail({ country: c, onBack }: Props) {
               </div>
               <div className={`space-y-2 ${noSignals ? 'opacity-40 pointer-events-none' : ''}`}>
                 {SIGNALS.map(({ key, label }) => {
-                  const v = c.signals[key]
+                  const v = c.signals[key] ?? 0
                   const col = noSignals ? '#a1a1aa' : signalColor(v)
                   return (
                     <div key={key}>

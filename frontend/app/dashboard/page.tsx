@@ -197,13 +197,13 @@ function QuickStats({ country: c }: { country: Country }) {
                 <div
                   className="h-full rounded-full"
                   style={{
-                    width: `${v}%`,
-                    background: v >= 75 ? '#1D9E75' : v >= 50 ? '#EF9F27' : '#E24B4A',
+                    width: `${v ?? 0}%`,
+                    background: (v ?? 0) >= 75 ? '#1D9E75' : (v ?? 0) >= 50 ? '#EF9F27' : '#E24B4A',
                   }}
                 />
               </div>
 
-              <span className="text-[9px] font-mono text-zinc-400">{v}</span>
+              <span className="text-[9px] font-mono text-zinc-400">{v ?? 0}</span>
             </div>
           ))}
         </div>

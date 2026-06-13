@@ -31,7 +31,7 @@ type BackendCountryPayload = {
   official?: number | string
   ospi?: number | string
   conf?: Country['conf']
-  signals?: Partial<Record<keyof SignalScores, number | null>>
+  signals?: Record<string, number | null>
   history?: BackendHistoryPoint[]
   ospiHistory?: BackendOspiHistoryPoint[]
   urbanPct?: number | string
@@ -66,38 +66,57 @@ function saveCachedCountries(countries: Country[]) {
 
 // ── Signal normalisation ──────────────────────────────────────────────────────
 
+const V3_SIGNAL_KEYS = ['telecom', 'electricity', 'gdp_per_capita', 'nightlights', 'mobility'] as const
+const V2_SIGNAL_KEYS = ['telecom', 'electricity', 'building', 'mobility', 'internet'] as const
+
 function normalizeSignal(value: number | null | undefined): number {
   if (value == null) return 0
   return Math.max(0, Math.min(100, Math.round(value)))
 }
 
 function normalizeSignals(
-  signals: Partial<Record<keyof SignalScores, number | null>> | undefined,
+  signals: Record<string, number | null> | undefined,
+  version?: string,
 ): SignalScores {
-  return {
-    telecom:     normalizeSignal(signals?.telecom),
-    electricity: normalizeSignal(signals?.electricity),
-    building:    normalizeSignal(signals?.building),
-    mobility:    normalizeSignal(signals?.mobility),
-    internet:    normalizeSignal(signals?.internet),
+  const keys = version === 'v2' ? V2_SIGNAL_KEYS : V3_SIGNAL_KEYS
+  const result: SignalScores = {} as SignalScores
+  for (const k of keys) {
+    result[k] = normalizeSignal(signals?.[k])
   }
+  return result
 }
 
 // ── Fetch ─────────────────────────────────────────────────────────────────────
 
 let cachedCountries: Country[] | null = null
+let cachedVersion: string | null = null
 let pendingPromise: Promise<Country[]> | null = null
 
-export async function fetchBackendCountries(): Promise<Country[]> {
-  if (cachedCountries) return cachedCountries
-  if (pendingPromise) return pendingPromise
+export function clearCountriesCache() {
+  cachedCountries = null
+  cachedVersion = null
+  pendingPromise = null
+}
+
+export async function fetchBackendCountries(version?: string): Promise<Country[]> {
+  const { getModelVersion } = await import('./modelVersion')
+  const ver = version || getModelVersion()
+
+  if (cachedCountries && cachedVersion === ver) return cachedCountries
+  if (pendingPromise && cachedVersion === ver) return pendingPromise
+
+  // Version changed — reset
+  cachedCountries = null
+  pendingPromise = null
 
   const baseUrl = process.env.NEXT_PUBLIC_BACKEND_URL?.replace(/\/+$/, '')
   if (!baseUrl) throw new Error('NEXT_PUBLIC_BACKEND_URL is not set')
 
+  const qs = ver === 'v3' ? '' : `?version=${ver}`
+
   pendingPromise = (async () => {
     try {
-      const res = await fetch(`${baseUrl}/countries/full`, { cache: 'no-store' })
+      const res = await fetch(`${baseUrl}/countries/full${qs}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(`/countries/full returned ${res.status}`)
 
       const payload = await res.json() as BackendCountryPayload[]
@@ -111,7 +130,7 @@ export async function fetchBackendCountries(): Promise<Country[]> {
         official:     Number(item.official ?? 0),
         ospi:         Number(item.ospi ?? item.official ?? 0),
         conf:         (item.conf ?? 'low') as Country['conf'],
-        signals:      normalizeSignals(item.signals),
+        signals:      normalizeSignals(item.signals, ver),
         history:      Array.isArray(item.history)
                         ? item.history.map((h) => ({ y: Number(h.y), v: Number(h.v) }))
                         : [],
@@ -129,6 +148,7 @@ export async function fetchBackendCountries(): Promise<Country[]> {
       }))
 
       cachedCountries = countries
+      cachedVersion = ver
       saveCachedCountries(countries)
       return countries
     } catch (err) {
@@ -177,7 +197,7 @@ export function useCountries(): Country[] {
       const cached = loadCachedCountries()
       if (cached) {
         setSharedCountries(cached)
-        setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => v > 0)))
+        setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
         setSharedLoading(false)
       }
 
@@ -185,7 +205,7 @@ export function useCountries(): Country[] {
         .then((fresh) => {
           setSharedCountries(fresh)
           saveCachedCountries(fresh)
-          setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => v > 0)))
+          setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
           setSharedLoading(false)
         })
         .catch(() => {
@@ -195,7 +215,7 @@ export function useCountries(): Country[] {
     } else {
       // Subsequent instances: sync signals availability from whatever's loaded
       if (_countries.length > 0) {
-        setSignalsAvailable(_countries.some(c => Object.values(c.signals).some(v => v > 0)))
+        setSignalsAvailable(_countries.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
       }
     }
 

@@ -1,9 +1,12 @@
 export interface SignalScores {
   telecom: number
   electricity: number
-  building: number
+  gdp_per_capita: number
+  nightlights: number
   mobility: number
-  internet: number
+  building?: number
+  internet?: number
+  [key: string]: number | undefined
 }
 
 export interface HistoryPoint {
