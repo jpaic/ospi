@@ -428,7 +428,13 @@ export default function WorldMap({ countries, selected, onSelect, resetKey }: Pr
         gratPath.setAttribute('stroke-width', '0.4')
         gratLayer.appendChild(gratPath)
 
-        const world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as unknown as TopoJson
+        let world: TopoJson
+        try {
+          world = await d3.json('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json') as unknown as TopoJson
+        } catch {
+          console.error('[WorldMap] Failed to load world atlas from CDN')
+          return
+        }
         const feats = (topo.feature(world, world.objects.countries) as unknown as FeatureCollection).features as Feature[]
         feats.forEach((f: Feature) => {
           const p = document.createElementNS('http://www.w3.org/2000/svg', 'path') as AnnotatedPath

@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react'
 import { useDataSource } from './dataSource'
 import type { Country, SignalScores } from './types'
 
-const CACHE_KEY = 'ospi:countries:v5'
 const CACHE_TTL = 24 * 60 * 60 * 1000
 
 type BackendHistoryPoint = {
@@ -43,10 +42,14 @@ type BackendCountryPayload = {
 
 // ── Cache helpers ─────────────────────────────────────────────────────────────
 
-function loadCachedCountries(): Country[] | null {
+function cacheKey(version: string): string {
+  return `ospi:countries:${version}`
+}
+
+function loadCachedCountries(version: string): Country[] | null {
   if (typeof window === 'undefined') return null
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(cacheKey(version))
     if (!raw) return null
     const parsed = JSON.parse(raw)
     if (!parsed?.ts || !Array.isArray(parsed.countries)) return null
@@ -57,10 +60,10 @@ function loadCachedCountries(): Country[] | null {
   }
 }
 
-function saveCachedCountries(countries: Country[]) {
+function saveCachedCountries(countries: Country[], version: string) {
   if (typeof window === 'undefined') return
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), countries }))
+    localStorage.setItem(cacheKey(version), JSON.stringify({ ts: Date.now(), countries }))
   } catch {}
 }
 
@@ -149,7 +152,7 @@ export async function fetchBackendCountries(version?: string): Promise<Country[]
 
       cachedCountries = countries
       cachedVersion = ver
-      saveCachedCountries(countries)
+      saveCachedCountries(countries, ver)
       return countries
     } catch (err) {
       pendingPromise = null
@@ -194,17 +197,20 @@ export function useCountries(): Country[] {
 
     // Only kick off the fetch once (first hook instance)
     if (_listeners.size === 1) {
-      const cached = loadCachedCountries()
-      if (cached) {
-        setSharedCountries(cached)
-        setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
-        setSharedLoading(false)
-      }
+      (async () => {
+        const { getModelVersion } = await import('./modelVersion')
+        const ver = getModelVersion()
+        const cached = loadCachedCountries(ver)
+        if (cached) {
+          setSharedCountries(cached)
+          setSignalsAvailable(cached.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
+          setSharedLoading(false)
+        }
 
-      fetchBackendCountries()
+        fetchBackendCountries(ver)
         .then((fresh) => {
           setSharedCountries(fresh)
-          saveCachedCountries(fresh)
+          saveCachedCountries(fresh, ver)
           setSignalsAvailable(fresh.some(c => Object.values(c.signals).some(v => (v ?? 0) > 0)))
           setSharedLoading(false)
         })
@@ -212,6 +218,7 @@ export function useCountries(): Country[] {
           setSignalsAvailable(false)
           setSharedLoading(false)
         })
+      })()
     } else {
       // Subsequent instances: sync signals availability from whatever's loaded
       if (_countries.length > 0) {

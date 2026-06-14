@@ -19,8 +19,6 @@ interface ModelStatus {
 interface Props {
   /** Base URL of the FastAPI backend */
   backendUrl?: string
-  /** Admin token — only pass from a server component or env var in prod */
-  adminToken?: string
   /** Called after a successful retrain so the parent can refresh country data */
   onRetrainComplete?: () => void
 }
@@ -72,7 +70,7 @@ function StatusDot({ ok }: { ok: boolean }) {
   )
 }
 
-export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete }: Props) {
+export default function ModelStatus({ backendUrl, onRetrainComplete }: Props) {
   const [status, setStatus] = useState<ModelStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [retraining, setRetraining] = useState(false)
@@ -109,17 +107,10 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
   }, [fetchStatus])
 
   const handleRetrain = async () => {
-    if (!adminToken) {
-      setRetrainResult('No admin token configured')
-      return
-    }
     setRetraining(true)
     setRetrainResult(null)
     try {
-      const res = await fetch(`${base}/admin/retrain/sync`, {
-        method: 'POST',
-        headers: { 'X-Admin-Token': adminToken },
-      })
+      const res = await fetch('/api/retrain', { method: 'POST' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`)
       setRetrainResult(
@@ -304,46 +295,44 @@ export default function ModelStatus({ backendUrl, adminToken, onRetrainComplete 
             </div>
           )}
 
-          {/* Retrain button (only shown when adminToken is present) */}
-          {adminToken && (
-            <div className="pt-1 border-t border-zinc-100 dark:border-zinc-800">
-              <button
-                onClick={handleRetrain}
-                disabled={retraining}
-                className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-medium transition-colors"
-                style={{
-                  background: retraining ? 'rgba(29,158,117,0.08)' : 'rgba(29,158,117,0.12)',
-                  color: '#1D9E75',
-                  cursor: retraining ? 'not-allowed' : 'pointer',
-                  opacity: retraining ? 0.6 : 1,
-                }}
-              >
-                {retraining ? (
-                  <>
-                    <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                      <path d="M21 12a9 9 0 11-6.219-8.56" />
-                    </svg>
-                    Training…
-                  </>
-                ) : (
-                  <>
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                      <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-                    </svg>
-                    Retrain model
-                  </>
-                )}
-              </button>
-              {retrainResult && (
-                <p
-                  className="mt-1.5 text-[9px] text-center"
-                  style={{ color: retrainResult.startsWith('✓') ? '#1D9E75' : '#E24B4A' }}
-                >
-                  {retrainResult}
-                </p>
+          {/* Retrain button */}
+          <div className="pt-1 border-t border-zinc-100 dark:border-zinc-800">
+            <button
+              onClick={handleRetrain}
+              disabled={retraining}
+              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-medium transition-colors"
+              style={{
+                background: retraining ? 'rgba(29,158,117,0.08)' : 'rgba(29,158,117,0.12)',
+                color: '#1D9E75',
+                cursor: retraining ? 'not-allowed' : 'pointer',
+                opacity: retraining ? 0.6 : 1,
+              }}
+            >
+              {retraining ? (
+                <>
+                  <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M21 12a9 9 0 11-6.219-8.56" />
+                  </svg>
+                  Training…
+                </>
+              ) : (
+                <>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                    <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
+                  </svg>
+                  Retrain model
+                </>
               )}
-            </div>
-          )}
+            </button>
+            {retrainResult && (
+              <p
+                className="mt-1.5 text-[9px] text-center"
+                style={{ color: retrainResult.startsWith('✓') ? '#1D9E75' : '#E24B4A' }}
+              >
+                {retrainResult}
+              </p>
+            )}
+          </div>
 
           {/* Method note */}
           <p className="text-[8px] text-zinc-300 dark:text-zinc-700 leading-relaxed">

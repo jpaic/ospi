@@ -142,9 +142,7 @@ export default function Sidebar({ countries, selected, onSelect, query, onSearch
 
         {/* ML Model status panel */}
         <div className="mb-2">
-          <ModelStatus
-            adminToken={process.env.NEXT_PUBLIC_ADMIN_TOKEN}
-          />
+          <ModelStatus />
         </div>
 
         {/* Model version switcher */}
