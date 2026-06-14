@@ -1,6 +1,6 @@
 # OpenSignal Population Index (OSPI)
 
-An open-source framework for estimating population using infrastructure signals — with dual-model support (v2 / v3) switchable from the UI. Complements traditional census figures with near-real-time estimates.
+Open-source system for estimating population using infrastructure signals such as telecom activity, electricity consumption, and satellite imagery.
 
 ---
 
@@ -10,7 +10,27 @@ Official census data is expensive, infrequent, and not always reliable. Methodol
 
 The system is designed to be transparent, reproducible, and deployable against publicly available data. It does not replace census data — it cross-references it.
 
-Two model versions are available and switchable from the sidebar: **v2** (the original five-signal Ridge model) and **v3** (the updated five-signal Ridge model with GDP per capita, nightlights, and population-weighted training). Each version loads its own coefficients, scaler parameters, and signal configuration from the database.
+Two model versions are available and switchable from the sidebar: **v2** (legacy Ridge) and **v3** (population-weighted Ridge). Each version loads its own coefficients, scaler parameters, and signal configuration from the database.
+
+<p align="center">
+  <img src="images/dashboard_overview.png" alt="Dashboard overview" width="48%" />
+  <img src="images/country_detail_overview.png" alt="Country detail panel" width="48%" />
+</p>
+
+---
+
+## Table of Contents
+
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Signals](#signals)
+- [Data Sources](#data-sources)
+- [Model](#model)
+- [Known Limitations](#known-limitations)
+- [Version Switching](#version-switching)
+- [Stack](#stack)
+- [Changelog](#changelog)
+- [License](#license)
 
 ---
 
@@ -22,7 +42,7 @@ ETL (Python)  →  PostgreSQL  →  FastAPI backend  →  Next.js frontend
 
 - **ETL layer** fetches raw signal data per country per year, normalises to log-scale [0, 100] scores, and stores them alongside official UN population figures.
 - **Ridge regression model** (two versions: v2 per-feature α, v3 population-weighted RidgeCV) trains on high-confidence UN data. Continent-level bias adjustments are learned from UN sub-region metadata. Five-fold cross-validation produces out-of-fold residuals and CV R² as a guard against overfitting.
-- **Estimator** applies the trained model to any country with sufficient signal coverage, returning an estimate, confidence tier (high / med / low), and signal-by-signal breakdown. The model version is selected via `?version=v2|v3` query parameter.
+- **Estimator** applies the trained model to any country with sufficient signal coverage, returning an estimate, confidence tier (high / med / low), and signal-by-signal breakdown. The model version is selected via query parameter.
 - **Frontend** renders an interactive world map with per-country detail panels, trend charts, signal breakdowns, an ML model-status dashboard, a version switcher in the sidebar, and a territory filter to exclude non-sovereign entities.
 
 ---
@@ -200,13 +220,8 @@ A **v2 / v3** toggle in the sidebar controls which model version is active acros
 | Signals | telecom, electricity, building, internet, mobility + log_area + signal_count | telecom, electricity, gdp_per_capita, nightlights, mobility + log_area |
 | Scaler | 7-element mean | 6-element mean |
 | Confidence tiers | Coverage ≥ 0.4 threshold | Coverage ≥ 0.2 threshold |
-| Outliers chart | N/A | `GET /model/outliers?version=v3` |
 
-The backend accepts `?version=v2|v3` on all `/model/*` and `/countries/*` endpoints. The frontend fetches with the stored version and dynamically renders coefficient bars from the `signal_keys` array returned in the response.
-
----
-
-## Stack
+The backend returns model coefficients and signal keys matching the selected version.
 
 ---
 
@@ -221,28 +236,7 @@ The backend accepts `?version=v2|v3` on all `/model/*` and `/countries/*` endpoi
 
 ## Changelog
 
-### v3 (2026)
-
-- **Version switcher:** sidebar toggle loads v2 or v3 model dynamically; all UI elements (coefficient bars, signal display, outliers chart) update per version
-- **Population-weighted training:** GridSearchCV(Ridge()) with weight ∝ population; α=0.0001
-- **New signals:** gdp_per_capita (injected from country_metadata), nightlights (VIIRS DNB)
-- **Signal removals:** building footprints, internet usage, signal_count — removed due to low coverage or zero variance
-- **Mobility source:** switched from Numbeo Traffic Index to Google Community Mobility Reports
-- **Model outliers endpoint:** `GET /model/outliers?version=X` returns top-10 residuals for the selected version
-- **Backend schema:** `version` column in `model_weights` for branch isolation (v2 Ridge / v3 Ridge)
-
-### v2 (2026)
-
-- Ridge regression with per-feature penalisation
-- StandardScaler + log(area_km²) + signal_count features
-- Continent-level adjustments via region_coefs
-- Out-of-fold residuals and CV R²
-- Original five signals: telecom, electricity, building, internet, mobility
-
-### v1 (2025)
-
-- Initial release: correction-factor fallback model
-- Five original signals: telecom, electricity, building, mobility, internet
+See [CHANGELOG](CHANGELOG.md) for a detailed version history.
 
 ---
 
