@@ -1,6 +1,6 @@
 # Changelog
 
-## v3 (2026)
+## v3 (June 2026)
 
 ### Added
 - **Version switcher:** sidebar toggle loads v2 or v3 model dynamically; all UI elements (coefficient bars, signal display, model outliers chart) update per version
@@ -41,7 +41,7 @@
 
 ---
 
-## v2 (2026)
+## v2 (June 2026)
 
 ### Added
 - **Ridge regression pipeline:** per-feature regularisation with individual alpha penalties — strong signals (telecom, land area) are near-OLS, weak signals (building, mobility, internet) are heavily shrunk toward zero
@@ -91,7 +91,7 @@
 
 ---
 
-## v1 (2025)
+## v1 (May 2026)
 
 ### Added
 - **Project scaffold:** Next.js 14 App Router frontend (TypeScript), FastAPI backend (Python), PostgreSQL database

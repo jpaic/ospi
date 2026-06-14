@@ -30,6 +30,7 @@ Two model versions are available and switchable from the sidebar: **v2** (legacy
 - [Version Switching](#version-switching)
 - [Stack](#stack)
 - [Changelog](#changelog)
+- [Contributing](#contributing)
 - [License](#license)
 
 ---
@@ -237,6 +238,12 @@ The backend returns model coefficients and signal keys matching the selected ver
 ## Changelog
 
 See [CHANGELOG](CHANGELOG.md) for a detailed version history.
+
+---
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING](CONTRIBUTING.md) for setup, guidelines, and PR process.
 
 ---
 
