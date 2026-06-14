@@ -11,14 +11,19 @@ from db.connection import get_conn
 logger = logging.getLogger(__name__)
 
 
+_CLEAR_QUERIES = {
+    "populations": "DELETE FROM populations",
+    "country_metadata": "DELETE FROM country_metadata",
+}
+
 def clear_table(table_name: str):
-    allowed_tables = {"populations", "country_metadata"}
-    if table_name not in allowed_tables:
+    query = _CLEAR_QUERIES.get(table_name)
+    if query is None:
         raise ValueError(f"Refusing to clear unexpected table: {table_name}")
 
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute(f"DELETE FROM {table_name}")
+            cur.execute(query)
         conn.commit()
 
     logger.info("Cleared table '%s'", table_name)
@@ -99,6 +104,7 @@ def apply_schema_patches():
 
     patches = [
         Path(__file__).resolve().parent.parent / "db" / "patches" / "model_schema_patch.sql",
+        Path(__file__).resolve().parent.parent / "db" / "patches" / "job_status_patch.sql",
     ]
 
     with get_conn() as conn:

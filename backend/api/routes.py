@@ -34,10 +34,6 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
-# ── Retrain status store ──────────────────────────────────────────────────────
-
-_retrain_status: dict[str, str | dict | None] = {"status": "idle", "result": None, "error": None}
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # NOTE: `/countries/full` must be defined BEFORE `/countries/{iso2}` so FastAPI
 # matches the literal "full" before trying it as an iso2 parameter.
@@ -598,19 +594,20 @@ async def admin_retrain(request: Request, background_tasks: BackgroundTasks):
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
 
+    from services.job_status import set_running, set_completed, set_failed
+
     def _do_retrain():
         """Synchronous wrapper — BackgroundTasks silently drops coroutines."""
-        global _retrain_status
-        _retrain_status = {"status": "running", "result": None, "error": None}
+        set_running()
         from etl.jobs import run_model_training
         try:
             get_cache().invalidate_prefix("details:")
             result = run_model_training()
-            _retrain_status = {"status": "completed", "result": result, "error": None}
+            set_completed(result)
             logger.info("Background retrain completed: model_id=%s", result.get("model_id"))
         except Exception as e:
-            _retrain_status = {"status": "failed", "result": None, "error": str(e)}
-            logger.error("Background retrain failed: %s", exc_info=True)
+            set_failed(str(e))
+            logger.error("Background retrain failed", exc_info=True)
 
     background_tasks.add_task(_do_retrain)
     return {"status": "accepted", "message": "Retrain job queued. Poll /admin/retrain/status for progress."}
@@ -622,7 +619,8 @@ async def admin_retrain_status(request: Request):
     token = request.headers.get("X-Admin-Token", "")
     if token != os.environ.get("ADMIN_TOKEN", ""):
         raise HTTPException(status_code=403, detail="Forbidden")
-    return _retrain_status
+    from services.job_status import get_status
+    return get_status()
 
 
 @app.post("/admin/retrain/sync")

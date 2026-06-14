@@ -15,10 +15,10 @@ A country's confidence is determined by two factors:
    for that country (out of the possible 2010–2024 window = 15 years).
    More years = more stable time-series = more trustworthy anchor.
 
-Thresholds (tunable via constants.py):
+Thresholds:
 
-    HIGH:   signal_coverage >= 0.8  AND  pop_years >= 10
-    MED:    signal_coverage >= 0.4  AND  pop_years >= 5
+    HIGH:   signal_coverage >= 1.0  AND  pop_years >= 10
+    MED:    signal_coverage >= 0.6  AND  pop_years >= 5
     LOW:    everything else with at least 1 signal or 1 pop year
     (countries with no data at all stay 'unknown')
 
@@ -40,10 +40,10 @@ log = logging.getLogger(__name__)
 STORE_SIGNAL_KEYS = [k for k in SIGNAL_KEYS if k != "gdp_per_capita"]
 
 # Thresholds — edit here, nowhere else
-HIGH_COVERAGE  = 1.0   # all stored signals present
-HIGH_POP_YEARS = 5    # at least 5 of 15 possible years
+HIGH_COVERAGE  = 1.0    # all stored signals present
+HIGH_POP_YEARS = 10     # at least 10 of 15 possible years
 MED_COVERAGE   = 0.6
-MED_POP_YEARS  = 8
+MED_POP_YEARS  = 5
 
 
 def _compute_confidence(signal_coverage: float, pop_years: int) -> str:
