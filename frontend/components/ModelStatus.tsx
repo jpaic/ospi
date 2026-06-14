@@ -73,8 +73,6 @@ function StatusDot({ ok }: { ok: boolean }) {
 export default function ModelStatus({ backendUrl, onRetrainComplete }: Props) {
   const [status, setStatus] = useState<ModelStatus | null>(null)
   const [loading, setLoading] = useState(true)
-  const [retraining, setRetraining] = useState(false)
-  const [retrainResult, setRetrainResult] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [expanded, setExpanded] = useState(false)
 
@@ -105,25 +103,6 @@ export default function ModelStatus({ backendUrl, onRetrainComplete }: Props) {
     const t = setInterval(() => { fetchStatus().catch(() => {}) }, 30_000)
     return () => clearInterval(t)
   }, [fetchStatus])
-
-  const handleRetrain = async () => {
-    setRetraining(true)
-    setRetrainResult(null)
-    try {
-      const res = await fetch('/api/retrain', { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.detail ?? `HTTP ${res.status}`)
-      setRetrainResult(
-        `✓ Model ${data.model_id} trained · R²=${data.r_squared} · n=${data.n_training}`
-      )
-      await fetchStatus()
-      onRetrainComplete?.()
-    } catch (err) {
-      setRetrainResult(`✗ ${err instanceof Error ? err.message : String(err)}`)
-    } finally {
-      setRetraining(false)
-    }
-  }
 
   const formatDate = (iso: string | null) => {
     if (!iso) return '—'
@@ -294,45 +273,6 @@ export default function ModelStatus({ backendUrl, onRetrainComplete }: Props) {
               </div>
             </div>
           )}
-
-          {/* Retrain button */}
-          <div className="pt-1 border-t border-zinc-100 dark:border-zinc-800">
-            <button
-              onClick={handleRetrain}
-              disabled={retraining}
-              className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded text-[10px] font-medium transition-colors"
-              style={{
-                background: retraining ? 'rgba(29,158,117,0.08)' : 'rgba(29,158,117,0.12)',
-                color: '#1D9E75',
-                cursor: retraining ? 'not-allowed' : 'pointer',
-                opacity: retraining ? 0.6 : 1,
-              }}
-            >
-              {retraining ? (
-                <>
-                  <svg className="animate-spin" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                    <path d="M21 12a9 9 0 11-6.219-8.56" />
-                  </svg>
-                  Training…
-                </>
-              ) : (
-                <>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                    <path d="M21 2v6h-6M3 12a9 9 0 0 1 15-6.7L21 8M3 22v-6h6M21 12a9 9 0 0 1-15 6.7L3 16" />
-                  </svg>
-                  Retrain model
-                </>
-              )}
-            </button>
-            {retrainResult && (
-              <p
-                className="mt-1.5 text-[9px] text-center"
-                style={{ color: retrainResult.startsWith('✓') ? '#1D9E75' : '#E24B4A' }}
-              >
-                {retrainResult}
-              </p>
-            )}
-          </div>
 
           {/* Method note */}
           <p className="text-[8px] text-zinc-300 dark:text-zinc-700 leading-relaxed">
