@@ -104,7 +104,6 @@ def apply_schema_patches():
 
     patches = [
         Path(__file__).resolve().parent.parent / "db" / "patches" / "model_schema_patch.sql",
-        Path(__file__).resolve().parent.parent / "db" / "patches" / "job_status_patch.sql",
     ]
 
     with get_conn() as conn:
