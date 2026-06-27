@@ -231,7 +231,7 @@ The backend returns model coefficients and signal keys matching the selected ver
 - **Backend:** Python, FastAPI, PostgreSQL, psycopg2, scikit-learn, httpx
 - **ETL:** World Bank API (WDI), UN Data Portal API, Google Community Mobility Reports, EOAtlas / NASA VIIRS
 - **Frontend:** Next.js, TypeScript, Chart.js, D3, Tailwind CSS
-- **Deployment:** Vercel (frontend + backend serverless, main branch only)
+- **Deployment:** Vercel (frontend + backend serverless)
 
 ---
 
